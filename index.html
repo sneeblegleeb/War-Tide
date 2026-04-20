@@ -23,6 +23,7 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
+    overscroll-behavior: none;
     background: var(--bg);
     color: var(--text);
     font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -71,7 +72,7 @@
   #statusPanel {
     padding: 10px 12px;
     min-width: 180px;
-    max-width: 55vw;
+    max-width: min(72vw, 430px);
   }
   #zoomPanel {
     display: flex;
@@ -151,7 +152,7 @@
     margin-top: 8px;
   }
   #commandPanel {
-    max-height: 34vh;
+    max-height: min(40vh, 340px);
     overflow: auto;
   }
   button:disabled {
@@ -293,12 +294,11 @@
   @media (max-width: 760px) {
     .setupGrid { grid-template-columns: 1fr; }
     .shipGrid { grid-template-columns: 1fr; }
-    #statusPanel { max-width: 68vw; }
+    #statusPanel { max-width: min(78vw, 460px); }
     .legend { grid-template-columns: 1fr; }
     .actionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .footerGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .shipJumpGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
   }
 </style>
 </head>
@@ -704,6 +704,31 @@
     state.pendingAction = null;
   }
 
+  function actionHint(kind) {
+    if (kind === 'dest') return 'Tap the map to place a destination marker for the selected ship.';
+    if (kind === 'guns') return `Tap the map to set a gun target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'guns'))}.`;
+    if (kind === 'torps') return `Tap the map to set a torpedo target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'torps'))}.`;
+    if (kind === 'bombers') return `Tap the map to send bombers to a strike point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.`;
+    return 'Tap the map to place the order.';
+  }
+
+  function describeCurrentOrder(ship) {
+    if (!ship) return 'No ship selected';
+    const parts = [];
+    if (ship.plan.dest) {
+      parts.push(`Dest ${fmt(ship.plan.dest.x)}, ${fmt(ship.plan.dest.y)}`);
+    } else {
+      parts.push('No destination');
+    }
+    if (ship.plan.action?.kind === 'guns') parts.push(`Guns queued @ ${fmt(ship.plan.action.target.x)}, ${fmt(ship.plan.action.target.y)}`);
+    else if (ship.plan.action?.kind === 'torps') parts.push(`Torps queued @ ${fmt(ship.plan.action.target.x)}, ${fmt(ship.plan.action.target.y)}`);
+    else if (ship.plan.action?.kind === 'bombers') parts.push(`Bombers queued @ ${fmt(ship.plan.action.target.x)}, ${fmt(ship.plan.action.target.y)}`);
+    else if (ship.plan.action?.kind === 'mines') parts.push('Dropping mines');
+    else if (ship.plan.action?.kind === 'submerge') parts.push(ship.plan.action.value ? 'Will dive' : 'Will surface');
+    else parts.push('No action queued');
+    return parts.join(' · ');
+  }
+
   function shipDisplayName(ship) {
     return `${teamName(ship.team)} ${shipTypes[ship.type].name}`;
   }
@@ -932,9 +957,9 @@
       const type = shipTypes[ship.type];
       const action = ship.plan.action;
       const visibleEnemies = state.battle.ships.filter(s => s.team !== 0 && !s.destroyed && canPlayerSee(s)).length;
-      const gunsReady = !!(type.guns && ship.cooldowns.guns <= 0.8 && !(ship.type === 'submarine' && ship.submerged));
-      const torpsReady = !!(type.torpedoes && ship.cooldowns.torps <= 0.8);
-      const bombersReady = !!(type.bombers && ship.cooldowns.bombers <= 0.8);
+      const gunsReady = !!(type.guns && canActionExecuteThisTurn(ship, 'guns'));
+      const torpsReady = !!(type.torpedoes && canActionExecuteThisTurn(ship, 'torps'));
+      const bombersReady = !!(type.bombers && canActionExecuteThisTurn(ship, 'bombers'));
 
       let html = '';
       html += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">';
@@ -942,8 +967,8 @@
       html += '<div class="pill">Turn ' + state.turn + ' · ' + TURN_DURATION + 's</div>';
       html += '</div>';
       html += '<div class="row">';
-      html += '<span class="pill">Speed ' + fmt(ship.speed) + '</span>';
-      html += '<span class="pill">Throttle ' + ship.plan.throttle.toFixed(1) + '</span>';
+      html += '<span class="pill" id="speedPill">Speed ' + fmt(ship.speed) + '</span>';
+      html += '<span class="pill" id="throttlePill">Throttle ' + ship.plan.throttle.toFixed(1) + '</span>';
       html += '<span class="pill">Detect ' + type.detection + '</span>';
       html += '</div>';
 
@@ -956,7 +981,7 @@
 
       html += '<div class="row" style="margin-top:8px; align-items:flex-end;">';
       html += '<div style="flex:1 1 220px; min-width:180px;">';
-      html += '<div class="small">Throttle</div>';
+      html += '<div class="small" id="throttleLabel">Throttle</div>';
       html += '<input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="' + ship.plan.throttle + '" style="width:100%;">';
       html += '</div>';
       html += '<button class="actionBtn ' + (state.pendingAction === 'dest' ? 'active' : '') + '" data-action="dest">Set Destination</button>';
@@ -980,7 +1005,7 @@
       html += '<button class="actionBtn danger" id="endTurnBtn">End Turn</button>';
       html += '</div>';
 
-      html += '<div class="row small" style="margin-top:8px;"><div>' + escapeHtml(describeCurrentOrder(ship)) + ' · Visible enemies: ' + visibleEnemies + '</div></div>';
+      html += '<div class="row small" style="margin-top:8px;"><div id="orderSummary">' + escapeHtml(describeCurrentOrder(ship)) + ' · Visible enemies: ' + visibleEnemies + '</div></div>';
       commandPanel.innerHTML = html;
 
       commandPanel.querySelectorAll('[data-shipjump]').forEach(btn => {
@@ -996,7 +1021,12 @@
       const slider = document.getElementById('throttleSlider');
       if (slider) slider.oninput = e => {
         ship.plan.throttle = Number(e.target.value);
-        renderCommandPanel();
+        const throttlePill = document.getElementById('throttlePill');
+        const throttleLabel = document.getElementById('throttleLabel');
+        const orderSummary = document.getElementById('orderSummary');
+        if (throttlePill) throttlePill.textContent = 'Throttle ' + ship.plan.throttle.toFixed(1);
+        if (throttleLabel) throttleLabel.textContent = 'Throttle (' + ship.plan.throttle.toFixed(1) + ')';
+        if (orderSummary) orderSummary.textContent = describeCurrentOrder(ship) + ' · Visible enemies: ' + visibleEnemies;
         renderStatusPanel();
       };
 
@@ -1038,6 +1068,7 @@
       if (centerShipBtn) centerShipBtn.onclick = () => {
         state.view.x = ship.x;
         state.view.y = ship.y;
+        clampView();
       };
       const prevShipBtn = document.getElementById('prevShipBtn');
       if (prevShipBtn) prevShipBtn.onclick = () => {
@@ -1055,7 +1086,7 @@
       if (endTurnBtn) endTurnBtn.onclick = runTurn;
 
     } catch (err) {
-      commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Controls hit an error. Minimal fallback is active.</div>' +
+      commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Controls hit an error. Minimal fallback is active.</div><div class="small" style="margin-top:4px;color:#ffd2d2;">' + escapeHtml(String(err && err.message || err)) + '</div>' +
         '<div class="footerGrid" style="margin-top:8px;">' +
         '<button class="actionBtn" id="fallbackDestBtn">Destination</button>' +
         '<button class="actionBtn" id="fallbackCenterBtn">Center</button>' +
@@ -1675,7 +1706,7 @@
     const steps = [];
     let x = ship.x, y = ship.y, speed = ship.speed, ang = ship.angle;
     for (let turn = 1; turn <= 4; turn++) {
-      const span = 5;
+      const span = TURN_DURATION;
       for (let t = 0; t < span; t += TURN_DT) {
         const desiredAngle = Math.atan2(ship.plan.dest.y - y, ship.plan.dest.x - x);
         ang += clamp(normAngle(desiredAngle - ang), -type.turnRate * TURN_DT, type.turnRate * TURN_DT);
@@ -1836,10 +1867,12 @@
 
   function drawMinimapHint() {
     ctx.save();
-    const x = canvas.width - 122;
-    const y = canvas.height - 162;
-    const w = 110;
-    const h = 80;
+    const w = canvas.width < 760 ? 92 : 110;
+    const h = canvas.width < 760 ? 66 : 80;
+    const panelRect = commandPanel.getBoundingClientRect();
+    const reservedBottom = commandPanel && panelRect.height ? Math.max(12, canvas.height - panelRect.top + 10) : 12;
+    const x = canvas.width - w - 12;
+    const y = Math.max(88, canvas.height - h - reservedBottom);
     ctx.globalAlpha = 0.8;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.fillRect(x, y, w, h);
@@ -1875,9 +1908,10 @@
 
     const tappedShip = findShipNear(world.x, world.y, 28 / state.view.zoom);
     if (tappedShip && tappedShip.team === 0) {
-      setSelectedShip(tappedShip.id);
+      state.selectedShipId = tappedShip.id;
       clearPendingAction();
       state.message = '';
+      refreshPanels();
       return;
     }
 
@@ -1889,29 +1923,29 @@
       return;
     }
 
-    if (state.pendingAction === 'guns') {
-      selectedShip.plan.action = { kind: 'guns', target: { x: world.x, y: world.y } };
+    const tryTargetedAction = (kind, successText) => {
+      if (!canActionExecuteThisTurn(selectedShip, kind)) {
+        state.message = 'That weapon cannot fire during this turn window.';
+        refreshPanels();
+        return true;
+      }
+      const range = getWeaponRange(selectedShip, kind);
+      const d = Math.hypot(world.x - selectedShip.x, world.y - selectedShip.y);
+      if (range > 0 && d > range) {
+        state.message = `${kind === 'guns' ? 'Gun' : kind === 'torps' ? 'Torpedo' : 'Bomber'} target is out of range (${fmt(d)} > ${fmt(range)}).`;
+        refreshPanels();
+        return true;
+      }
+      selectedShip.plan.action = { kind, target: { x: clamp(world.x, 0, MAP_W), y: clamp(world.y, 0, MAP_H) } };
       clearPendingAction();
-      state.message = 'Gun target set.';
+      state.message = successText;
       refreshPanels();
-      return;
-    }
+      return true;
+    };
 
-    if (state.pendingAction === 'torps') {
-      selectedShip.plan.action = { kind: 'torps', target: { x: world.x, y: world.y } };
-      clearPendingAction();
-      state.message = 'Torpedo target set.';
-      refreshPanels();
-      return;
-    }
-
-    if (state.pendingAction === 'bombers') {
-      selectedShip.plan.action = { kind: 'bombers', target: { x: world.x, y: world.y } };
-      clearPendingAction();
-      state.message = 'Bomber strike target set.';
-      refreshPanels();
-      return;
-    }
+    if (state.pendingAction === 'guns') return void tryTargetedAction('guns', 'Gun target set.');
+    if (state.pendingAction === 'torps') return void tryTargetedAction('torps', 'Torpedo target set.');
+    if (state.pendingAction === 'bombers') return void tryTargetedAction('bombers', 'Bomber strike target set.');
 
     if (tappedShip && tappedShip.team !== 0 && canPlayerSee(tappedShip)) {
       state.message = `${shipDisplayName(tappedShip)} selected as a visual reference. Lead your shot if it’s moving.`;
@@ -1946,6 +1980,10 @@
 
   function attachInput() {
     let pinchStart = null;
+    const clearPointerState = () => {
+      state.pointer.down = false;
+      state.pointer.dragging = false;
+    };
 
     canvas.addEventListener('pointerdown', e => {
       if (overlay.classList.contains('show')) return;
@@ -1990,6 +2028,7 @@
     canvas.addEventListener('touchstart', e => {
       if (e.touches.length === 2) {
         pinchStart = pinchDistance(e.touches[0], e.touches[1]);
+        clearPointerState();
       }
     }, { passive: false });
 
@@ -2005,7 +2044,9 @@
       }
     }, { passive: false });
 
-    canvas.addEventListener('touchend', () => { pinchStart = null; });
+    canvas.addEventListener('touchend', e => { if (e.touches.length < 2) pinchStart = null; });
+    canvas.addEventListener('touchcancel', () => { pinchStart = null; clearPointerState(); });
+    canvas.addEventListener('pointercancel', () => { clearPointerState(); });
 
     zoomInBtn.addEventListener('click', () => zoomAt(canvas.width / 2, canvas.height / 2, 1.18));
     zoomOutBtn.addEventListener('click', () => zoomAt(canvas.width / 2, canvas.height / 2, 0.85));
