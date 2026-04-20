@@ -16,7 +16,6 @@
     --danger: #ff8080;
     --good: #86e6a8;
     --warn: #ffd280;
-    --dock-height: clamp(136px, 20vh, 180px);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -43,7 +42,7 @@
     left: 0;
     right: 0;
     top: 0;
-    bottom: var(--dock-height);
+    bottom: 176px;
     overflow: hidden;
   }
   canvas {
@@ -70,7 +69,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    height: var(--dock-height);
+    height: 176px;
     min-height: 0;
     overflow: hidden;
     padding: 8px 10px max(10px, env(safe-area-inset-bottom)) 10px;
