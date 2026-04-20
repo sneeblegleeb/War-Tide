@@ -828,7 +828,7 @@
     ensureCoursePlan(ship);
     const start = ship.plan.course.length ? ship.plan.course[ship.plan.course.length - 1] : { x: ship.x, y: ship.y };
     const safePoint = snapCoursePointToSafeWater(ship, point, start);
-    const routedPoints = routeSegmentAroundIslands(ship, start, safePoint);
+    const routedPoints = routeSegmentAroundIslands(ship, start, safePoint).slice(0, 3);
     ship.plan.course.push(...dedupeCoursePoints(routedPoints));
     ship.plan.course = dedupeCoursePoints(ship.plan.course);
     syncPlanDest(ship);
@@ -850,13 +850,21 @@
   function snapCoursePointToSafeWater(ship, point, anchor = null) {
     let p = clampCoursePoint(point);
     if (!state.battle) return p;
-    const clearance = shipRadius(ship) + 30;
+    const clearance = shipRadius(ship) + 26;
     for (const island of state.battle.islands) {
       const minR = island.r + clearance;
       const d = Math.hypot(p.x - island.x, p.y - island.y);
       if (d < minR) {
-        const fallbackAngle = anchor ? Math.atan2(p.y - anchor.y, p.x - anchor.x) : 0;
-        const ang = d > 0.001 ? Math.atan2(p.y - island.y, p.x - island.x) : fallbackAngle;
+        const anchorAngle = anchor ? Math.atan2(anchor.y - island.y, anchor.x - island.x) : 0;
+        const targetAngle = d > 0.001 ? Math.atan2(p.y - island.y, p.x - island.x) : anchorAngle;
+        let ang = targetAngle;
+
+        if (anchor && lineCircleHit(anchor, p, island, minR - 8)) {
+          const delta = normAngle(targetAngle - anchorAngle);
+          const side = delta >= 0 ? 1 : -1;
+          ang = anchorAngle + side * 0.65;
+        }
+
         p = clampCoursePoint({
           x: island.x + Math.cos(ang) * minR,
           y: island.y + Math.sin(ang) * minR
@@ -909,7 +917,7 @@
 
   function findBlockingIsland(ship, start, end) {
     if (!state.battle) return null;
-    const clearance = shipRadius(ship) + 20;
+    const clearance = shipRadius(ship) + 10;
     let best = null;
     let bestAlong = Infinity;
     const dx = end.x - start.x;
@@ -928,36 +936,27 @@
 
   function routeSegmentAroundIslands(ship, start, end, depth = 0) {
     end = snapCoursePointToSafeWater(ship, end, start);
-    if (!state.battle || depth > 3) return [end];
+    if (!state.battle) return [end];
     const island = findBlockingIsland(ship, start, end);
     if (!island) return [end];
 
-    const clearance = island.r + shipRadius(ship) + 40;
+    const clearance = island.r + shipRadius(ship) + 28;
     const startA = Math.atan2(start.y - island.y, start.x - island.x);
     const endA = Math.atan2(end.y - island.y, end.x - island.x);
-    const candidates = [];
+    const delta = normAngle(endA - startA);
+    const side = delta >= 0 ? 1 : -1;
 
-    for (const side of [1, -1]) {
-      const p1 = nudgePointOutOfIslands({
-        x: island.x + Math.cos(startA + side * 1.05) * clearance,
-        y: island.y + Math.sin(startA + side * 1.05) * clearance
-      }, shipRadius(ship) + 24);
+    const p1 = nudgePointOutOfIslands({
+      x: island.x + Math.cos(startA + side * 0.72) * clearance,
+      y: island.y + Math.sin(startA + side * 0.72) * clearance
+    }, shipRadius(ship) + 16);
 
-      const p2 = nudgePointOutOfIslands({
-        x: island.x + Math.cos(endA - side * 1.05) * clearance,
-        y: island.y + Math.sin(endA - side * 1.05) * clearance
-      }, shipRadius(ship) + 24);
+    const p2 = nudgePointOutOfIslands({
+      x: island.x + Math.cos(endA - side * 0.72) * clearance,
+      y: island.y + Math.sin(endA - side * 0.72) * clearance
+    }, shipRadius(ship) + 16);
 
-      let path = [];
-      path = path.concat(routeSegmentAroundIslands(ship, start, p1, depth + 1));
-      path = path.concat(routeSegmentAroundIslands(ship, p1, p2, depth + 1));
-      path = path.concat(routeSegmentAroundIslands(ship, p2, end, depth + 1));
-      path = dedupeCoursePoints(path);
-      candidates.push({ path, score: polylineLength(start, path) });
-    }
-
-    candidates.sort((a, b) => a.score - b.score);
-    return candidates[0]?.path || [end];
+    return dedupeCoursePoints([p1, p2, end]).slice(0, 3);
   }
 
   function describeCurrentOrder(ship) {
@@ -1631,19 +1630,12 @@
         ship.y += Math.sin(tangentAng) * 8;
         ship.speed = Math.max(ship.speed * 0.7, 18);
 
-        if (ship.plan.dest && lineCircleHit(ship, ship.plan.dest, island, island.r + shipRadius(ship) + 16)) {
-          const reroute = routeSegmentAroundIslands(ship, { x: ship.x, y: ship.y }, ship.plan.dest);
-          if (reroute.length > 1) {
-            ship.plan.course = reroute.concat((ship.plan.course || []).slice(1));
-            ship.plan.course = dedupeCoursePoints(ship.plan.course);
-            syncPlanDest(ship);
-          }
-        }
+
       }
     }
 
     const moveDist = Math.hypot(ship.x - old.x, ship.y - old.y);
-    if (ship.plan.dest && Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y) < 24) {
+    if (ship.plan.dest && Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y) < 34) {
       if (ship.plan.course && ship.plan.course.length) ship.plan.course.shift();
       syncPlanDest(ship);
       if (!ship.plan.dest && ship.plan.courseMode === 'stop') {
@@ -2037,7 +2029,7 @@
         else speed = Math.max(desiredSpeed, speed - type.acceleration * TURN_DT);
         x += Math.cos(ang) * speed * TURN_DT;
         y += Math.sin(ang) * speed * TURN_DT;
-        if (dest && Math.hypot(dest.x - x, dest.y - y) < 24) {
+        if (dest && Math.hypot(dest.x - x, dest.y - y) < 34) {
           course.shift();
         }
       }
