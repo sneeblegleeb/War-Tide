@@ -16,7 +16,7 @@
     --danger: #ff8080;
     --good: #86e6a8;
     --warn: #ffd280;
-    --dock-height: clamp(150px, 24vh, 210px);
+    --dock-height: clamp(136px, 20vh, 180px);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -32,40 +32,45 @@
   #app {
     position: fixed;
     inset: 0;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     background:
       radial-gradient(circle at 20% 20%, rgba(90,140,200,0.08), transparent 18%),
       radial-gradient(circle at 70% 60%, rgba(120,180,255,0.05), transparent 20%),
       linear-gradient(180deg, #0a1d30, #07131f 40%, #06101b);
   }
+  #viewport {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
   canvas {
     position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: var(--dock-height);
+    inset: 0;
     touch-action: none;
   }
   .hud {
-    position: absolute;
-    left: 0;
-    right: 0;
     display: flex;
     gap: 8px;
     pointer-events: none;
-    padding: max(10px, env(safe-area-inset-top)) 10px 10px 10px;
   }
   .topbar {
+    position: absolute;
     top: 0;
+    left: 0;
+    right: 0;
     justify-content: space-between;
     align-items: flex-start;
+    padding: max(10px, env(safe-area-inset-top)) 10px 10px 10px;
   }
   .bottombar {
-    bottom: 0;
-    height: var(--dock-height);
+    position: relative;
+    flex: 0 0 var(--dock-height);
     padding: 8px 10px max(10px, env(safe-area-inset-bottom)) 10px;
     align-items: stretch;
-    background: linear-gradient(180deg, rgba(5,12,19,0.12), rgba(5,12,19,0.72) 12%, rgba(5,12,19,0.92));
+    background: linear-gradient(180deg, rgba(5,12,19,0.18), rgba(5,12,19,0.88) 16%, rgba(5,12,19,0.96));
   }
   .panel {
     pointer-events: auto;
@@ -311,14 +316,16 @@
 </head>
 <body>
 <div id="app">
-  <canvas id="game"></canvas>
+  <div id="viewport">
+    <canvas id="game"></canvas>
 
-  <div class="hud topbar">
-    <div id="statusPanel" class="panel"></div>
-    <div id="zoomPanel" class="panel">
-      <button id="zoomIn">＋</button>
-      <button id="zoomOut">－</button>
-      <button id="centerView">◎</button>
+    <div class="hud topbar">
+      <div id="statusPanel" class="panel"></div>
+      <div id="zoomPanel" class="panel">
+        <button id="zoomIn">＋</button>
+        <button id="zoomOut">－</button>
+        <button id="centerView">◎</button>
+      </div>
     </div>
   </div>
 
