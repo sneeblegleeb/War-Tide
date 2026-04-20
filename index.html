@@ -16,7 +16,6 @@
     --danger: #ff8080;
     --good: #86e6a8;
     --warn: #ffd280;
-    --dock-height: clamp(136px, 20vh, 180px);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -32,8 +31,6 @@
   #app {
     position: fixed;
     inset: 0;
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) var(--dock-height);
     overflow: hidden;
     background:
       radial-gradient(circle at 20% 20%, rgba(90,140,200,0.08), transparent 18%),
@@ -41,8 +38,11 @@
       linear-gradient(180deg, #0a1d30, #07131f 40%, #06101b);
   }
   #viewport {
-    position: relative;
-    min-height: 0;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 176px;
     overflow: hidden;
   }
   canvas {
@@ -65,7 +65,11 @@
     padding: max(10px, env(safe-area-inset-top)) 10px 10px 10px;
   }
   .bottombar {
-    position: relative;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 176px;
     min-height: 0;
     overflow: hidden;
     padding: 8px 10px max(10px, env(safe-area-inset-bottom)) 10px;
@@ -122,6 +126,7 @@
   #commandPanel {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     height: 100%;
     padding: 10px;
   }
@@ -348,10 +353,13 @@
   const modalContent = document.getElementById('modalContent');
   const statusPanel = document.getElementById('statusPanel');
   const commandPanel = document.getElementById('commandPanel');
+  const viewportEl = document.getElementById('viewport');
+  const bottomBar = document.querySelector('.bottombar');
   const zoomInBtn = document.getElementById('zoomIn');
   const zoomOutBtn = document.getElementById('zoomOut');
   const centerViewBtn = document.getElementById('centerView');
 
+  const DOCK_HEIGHT = 176;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
   const FLEET_SLOTS = 4;
@@ -2197,8 +2205,28 @@
     return best;
   }
 
+  function layoutUI() {
+    const appH = Math.max(1, window.innerHeight);
+    const appW = Math.max(1, window.innerWidth);
+    const dockH = DOCK_HEIGHT;
+
+    viewportEl.style.left = '0px';
+    viewportEl.style.right = '0px';
+    viewportEl.style.top = '0px';
+    viewportEl.style.bottom = '';
+    viewportEl.style.height = Math.max(160, appH - dockH) + 'px';
+
+    bottomBar.style.left = '0px';
+    bottomBar.style.right = '0px';
+    bottomBar.style.top = Math.max(0, appH - dockH) + 'px';
+    bottomBar.style.bottom = '';
+    bottomBar.style.height = dockH + 'px';
+    bottomBar.style.width = appW + 'px';
+  }
+
   function resizeCanvas() {
-    const rect = canvas.getBoundingClientRect();
+    layoutUI();
+    const rect = viewportEl.getBoundingClientRect();
     const w = Math.max(1, Math.floor(rect.width));
     const h = Math.max(1, Math.floor(rect.height));
     if (canvas.width !== w || canvas.height !== h) {
