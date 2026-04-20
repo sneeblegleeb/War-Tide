@@ -903,150 +903,131 @@
       return;
     }
 
-    try {
-      const type = shipTypes[ship.type];
-      const action = ship.plan.action;
-      const visibleEnemies = state.battle.ships.filter(s => s.team !== 0 && !s.destroyed && canPlayerSee(s)).length;
-      const gunsReady = !!(type.guns && ship.cooldowns.guns <= 0.8 && !(ship.type === 'submarine' && ship.submerged));
-      const torpsReady = !!(type.torpedoes && ship.cooldowns.torps <= 0.8);
-      const bombersReady = !!(type.bombers && ship.cooldowns.bombers <= 0.8);
+    const type = shipTypes[ship.type];
+    const action = ship.plan.action;
+    const gunsReady = !!(type.guns && ship.cooldowns.guns <= 0.8 && !(ship.type === 'submarine' && ship.submerged));
+    const torpsReady = !!(type.torpedoes && ship.cooldowns.torps <= 0.8);
+    const bombersReady = !!(type.bombers && ship.cooldowns.bombers <= 0.8);
+    const visibleEnemies = state.battle.ships.filter(s => s.team !== 0 && !s.destroyed && canPlayerSee(s)).length;
 
-      let html = '';
-      html += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">';
-      html += '<div><div class="sectionTitle">Selected Ship</div><div><strong>' + shipTypes[ship.type].name + '</strong> · <span class="small">HP ' + fmt(ship.hp) + '/' + ship.maxHp + '</span></div></div>';
-      html += '<div class="pill">Turn ' + state.turn + ' · ' + TURN_DURATION + 's</div>';
-      html += '</div>';
-      html += '<div class="row">';
-      html += '<span class="pill">Speed ' + fmt(ship.speed) + '</span>';
-      html += '<span class="pill">Throttle ' + ship.plan.throttle.toFixed(1) + '</span>';
-      html += '<span class="pill">Detect ' + type.detection + '</span>';
-      html += '</div>';
+    let html = '';
+    html += '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">';
+    html += '<div><div class="sectionTitle">Command</div><div><strong>' + shipTypes[ship.type].name + '</strong> · <span class="small">HP ' + fmt(ship.hp) + '/' + ship.maxHp + '</span></div></div>';
+    html += '<div class="pill">Enemies seen ' + visibleEnemies + '</div>';
+    html += '</div>';
 
-      html += '<div class="shipJumpGrid">';
-      const playerShips = getPlayerShips();
-      for (const ps of playerShips) {
-        html += '<button class="miniBtn ' + (ps.id === ship.id ? 'active' : '') + '" data-shipjump="' + ps.id + '">' + shipTypes[ps.type].name + '<br><span class="small">HP ' + fmt(ps.hp) + '</span></button>';
-      }
-      html += '</div>';
+    html += '<div class="row" style="margin-top:8px; align-items:flex-end;">';
+    html += '<div style="flex:1 1 220px; min-width:180px;">';
+    html += '<div class="small">Throttle <strong>' + ship.plan.throttle.toFixed(1) + '</strong></div>';
+    html += '<input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="' + ship.plan.throttle + '" style="width:100%;">';
+    html += '</div>';
+    html += '<button class="actionBtn ' + (state.pendingAction === 'dest' ? 'active' : '') + '" id="destBtn">Destination</button>';
+    html += '</div>';
 
-      html += '<div class="row" style="margin-top:8px; align-items:flex-end;">';
-      html += '<div style="flex:1 1 220px; min-width:180px;">';
-      html += '<div class="small">Throttle</div>';
-      html += '<input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="' + ship.plan.throttle + '" style="width:100%;">';
-      html += '</div>';
-      html += '<button class="actionBtn ' + (state.pendingAction === 'dest' ? 'active' : '') + '" data-action="dest">Set Destination</button>';
-      html += '</div>';
+    html += '<div class="actionGrid">';
+    if (type.guns) html += '<button class="actionBtn ' + (state.pendingAction === 'guns' ? 'active' : '') + '" id="gunsBtn" ' + (gunsReady ? '' : 'disabled') + '>Fire Guns</button>';
+    if (type.torpedoes) html += '<button class="actionBtn ' + (state.pendingAction === 'torps' ? 'active' : '') + '" id="torpsBtn" ' + (torpsReady ? '' : 'disabled') + '>Fire Torps</button>';
+    if (type.bombers) html += '<button class="actionBtn ' + (state.pendingAction === 'bombers' ? 'active' : '') + '" id="bombersBtn" ' + (bombersReady ? '' : 'disabled') + '>Send Bombers</button>';
+    if (type.mines) html += '<button class="actionBtn ' + (action && action.kind === 'mines' ? 'active' : '') + '" id="minesBtn">' + (action && action.kind === 'mines' ? 'Stop Mines' : 'Drop Mines') + '</button>';
+    if (ship.type === 'submarine') html += '<button class="actionBtn ' + (ship.submerged ? 'active warn' : '') + '" id="submergeBtn">' + (ship.submerged ? 'Surface' : 'Submerge') + '</button>';
+    html += '<button class="actionBtn" id="clearActionBtn">Clear Attack</button>';
+    html += '</div>';
 
-      html += '<div class="hintBox">' + escapeHtml(state.pendingAction ? actionHint(state.pendingAction) : 'Tap a command, then tap the map. Drag empty water to pan. Use pinch or +/- to zoom.') + '</div>';
+    html += '<div class="footerGrid">';
+    html += '<button class="actionBtn" id="centerShipBtn">Center</button>';
+    html += '<button class="actionBtn" id="nextShipBtn">Next Ship</button>';
+    html += '<button class="actionBtn" id="prevShipBtn">Prev Ship</button>';
+    html += '<button class="actionBtn danger" id="endTurnBtn">End Turn</button>';
+    html += '</div>';
 
-      html += '<div class="actionGrid">';
-      if (type.guns) html += '<button class="actionBtn ' + (state.pendingAction === 'guns' ? 'active' : '') + '" data-action="guns" ' + (gunsReady ? '' : 'disabled') + '>Fire Guns</button>';
-      if (type.torpedoes) html += '<button class="actionBtn ' + (state.pendingAction === 'torps' ? 'active' : '') + '" data-action="torps" ' + (torpsReady ? '' : 'disabled') + '>Fire Torps</button>';
-      if (type.mines) html += '<button class="actionBtn ' + (action && action.kind === 'mines' ? 'active' : '') + '" data-togglemines="1">' + (action && action.kind === 'mines' ? 'Stop Mines' : 'Drop Mines') + '</button>';
-      if (type.bombers) html += '<button class="actionBtn ' + (state.pendingAction === 'bombers' ? 'active' : '') + '" data-action="bombers" ' + (bombersReady ? '' : 'disabled') + '>Send Bombers</button>';
-      if (ship.type === 'submarine') html += '<button class="actionBtn ' + (ship.submerged ? 'active warn' : '') + '" data-submerge="1">' + (ship.submerged ? 'Surface' : 'Submerge') + '</button>';
-      html += '<button class="actionBtn" id="clearActionBtn">Clear Attack</button>';
-      html += '</div>';
+    html += '<div class="hintBox">' + escapeHtml(state.pendingAction ? actionHint(state.pendingAction) : describeCurrentOrder(ship)) + '</div>';
 
-      html += '<div class="footerGrid">';
-      html += '<button class="actionBtn" id="prevShipBtn">Prev Ship</button>';
-      html += '<button class="actionBtn" id="nextShipBtn">Next Ship</button>';
-      html += '<button class="actionBtn" id="centerShipBtn">Center View</button>';
-      html += '<button class="actionBtn danger" id="endTurnBtn">End Turn</button>';
-      html += '</div>';
+    commandPanel.innerHTML = html;
 
-      html += '<div class="row small" style="margin-top:8px;"><div>' + escapeHtml(describeCurrentOrder(ship)) + ' · Visible enemies: ' + visibleEnemies + '</div></div>';
-      commandPanel.innerHTML = html;
+    const slider = document.getElementById('throttleSlider');
+    if (slider) slider.oninput = e => {
+      ship.plan.throttle = Number(e.target.value);
+      renderCommandPanel();
+      renderStatusPanel();
+    };
 
-      commandPanel.querySelectorAll('[data-shipjump]').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.getAttribute('data-shipjump');
-          state.selectedShipId = id;
-          const s2 = getSelectedShip();
-          if (s2) { state.view.x = s2.x; state.view.y = s2.y; }
-          refreshPanels();
-        };
-      });
+    const destBtn = document.getElementById('destBtn');
+    if (destBtn) destBtn.onclick = () => {
+      state.pendingAction = state.pendingAction === 'dest' ? null : 'dest';
+      state.message = state.pendingAction ? actionHint('dest') : '';
+      refreshPanels();
+    };
 
-      const slider = document.getElementById('throttleSlider');
-      if (slider) slider.oninput = e => {
-        ship.plan.throttle = Number(e.target.value);
-        renderCommandPanel();
-        renderStatusPanel();
-      };
+    const gunsBtn = document.getElementById('gunsBtn');
+    if (gunsBtn) gunsBtn.onclick = () => {
+      if (gunsBtn.disabled) return;
+      state.pendingAction = state.pendingAction === 'guns' ? null : 'guns';
+      state.message = state.pendingAction ? actionHint('guns') : '';
+      refreshPanels();
+    };
 
-      commandPanel.querySelectorAll('[data-action]').forEach(btn => {
-        btn.onclick = () => {
-          if (btn.disabled) return;
-          const a = btn.getAttribute('data-action');
-          state.pendingAction = state.pendingAction === a ? null : a;
-          state.message = state.pendingAction ? actionHint(a) : '';
-          renderCommandPanel();
-          renderStatusPanel();
-        };
-      });
+    const torpsBtn = document.getElementById('torpsBtn');
+    if (torpsBtn) torpsBtn.onclick = () => {
+      if (torpsBtn.disabled) return;
+      state.pendingAction = state.pendingAction === 'torps' ? null : 'torps';
+      state.message = state.pendingAction ? actionHint('torps') : '';
+      refreshPanels();
+    };
 
-      const toggleMinesBtn = commandPanel.querySelector('[data-togglemines]');
-      if (toggleMinesBtn) toggleMinesBtn.onclick = () => {
-        if (ship.plan.action && ship.plan.action.kind === 'mines') ship.plan.action = null;
-        else ship.plan.action = { kind: 'mines' };
-        clearPendingAction();
-        state.message = ship.plan.action && ship.plan.action.kind === 'mines' ? 'This ship will lay mines while moving during the next turn.' : '';
-        refreshPanels();
-      };
+    const bombersBtn = document.getElementById('bombersBtn');
+    if (bombersBtn) bombersBtn.onclick = () => {
+      if (bombersBtn.disabled) return;
+      state.pendingAction = state.pendingAction === 'bombers' ? null : 'bombers';
+      state.message = state.pendingAction ? actionHint('bombers') : '';
+      refreshPanels();
+    };
 
-      const submergeBtn = commandPanel.querySelector('[data-submerge]');
-      if (submergeBtn) submergeBtn.onclick = () => {
-        ship.plan.action = { kind: 'submerge', value: !ship.submerged };
-        state.message = !ship.submerged ? 'Sub will dive during turn resolution.' : 'Sub will surface during turn resolution.';
-        refreshPanels();
-      };
+    const minesBtn = document.getElementById('minesBtn');
+    if (minesBtn) minesBtn.onclick = () => {
+      if (ship.plan.action && ship.plan.action.kind === 'mines') ship.plan.action = null;
+      else ship.plan.action = { kind: 'mines' };
+      clearPendingAction();
+      state.message = ship.plan.action && ship.plan.action.kind === 'mines' ? 'This ship will lay mines while moving next turn.' : '';
+      refreshPanels();
+    };
 
-      const clearActionBtn = document.getElementById('clearActionBtn');
-      if (clearActionBtn) clearActionBtn.onclick = () => {
-        ship.plan.action = ship.plan.action && ship.plan.action.kind === 'submerge' ? ship.plan.action : null;
-        clearPendingAction();
-        state.message = '';
-        refreshPanels();
-      };
-      const centerShipBtn = document.getElementById('centerShipBtn');
-      if (centerShipBtn) centerShipBtn.onclick = () => {
-        state.view.x = ship.x;
-        state.view.y = ship.y;
-      };
-      const prevShipBtn = document.getElementById('prevShipBtn');
-      if (prevShipBtn) prevShipBtn.onclick = () => {
-        const prev = cycleSelectedShip(-1);
-        if (prev) { state.view.x = prev.x; state.view.y = prev.y; }
-        refreshPanels();
-      };
-      const nextShipBtn = document.getElementById('nextShipBtn');
-      if (nextShipBtn) nextShipBtn.onclick = () => {
-        const next = cycleSelectedShip(1);
-        if (next) { state.view.x = next.x; state.view.y = next.y; }
-        refreshPanels();
-      };
-      const endTurnBtn = document.getElementById('endTurnBtn');
-      if (endTurnBtn) endTurnBtn.onclick = runTurn;
+    const submergeBtn = document.getElementById('submergeBtn');
+    if (submergeBtn) submergeBtn.onclick = () => {
+      ship.plan.action = { kind: 'submerge', value: !ship.submerged };
+      state.message = !ship.submerged ? 'Sub will dive during turn resolution.' : 'Sub will surface during turn resolution.';
+      refreshPanels();
+    };
 
-    } catch (err) {
-      commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Controls hit an error. Minimal fallback is active.</div>' +
-        '<div class="footerGrid" style="margin-top:8px;">' +
-        '<button class="actionBtn" id="fallbackDestBtn">Destination</button>' +
-        '<button class="actionBtn" id="fallbackCenterBtn">Center</button>' +
-        '<button class="actionBtn" id="fallbackNextBtn">Next Ship</button>' +
-        '<button class="actionBtn danger" id="fallbackEndBtn">End Turn</button>' +
-        '</div>';
-      const a = document.getElementById('fallbackDestBtn');
-      if (a) a.onclick = () => { state.pendingAction = 'dest'; state.message = actionHint('dest'); renderStatusPanel(); };
-      const b = document.getElementById('fallbackCenterBtn');
-      if (b) b.onclick = () => { state.view.x = ship.x; state.view.y = ship.y; };
-      const c = document.getElementById('fallbackNextBtn');
-      if (c) c.onclick = () => { cycleSelectedShip(1); refreshPanels(); };
-      const d = document.getElementById('fallbackEndBtn');
-      if (d) d.onclick = runTurn;
-      console.error(err);
-    }
+    const clearActionBtn = document.getElementById('clearActionBtn');
+    if (clearActionBtn) clearActionBtn.onclick = () => {
+      ship.plan.action = ship.plan.action && ship.plan.action.kind === 'submerge' ? ship.plan.action : null;
+      clearPendingAction();
+      state.message = '';
+      refreshPanels();
+    };
+
+    const centerShipBtn = document.getElementById('centerShipBtn');
+    if (centerShipBtn) centerShipBtn.onclick = () => {
+      state.view.x = ship.x;
+      state.view.y = ship.y;
+    };
+
+    const nextShipBtn = document.getElementById('nextShipBtn');
+    if (nextShipBtn) nextShipBtn.onclick = () => {
+      const next = cycleSelectedShip(1);
+      if (next) { state.view.x = next.x; state.view.y = next.y; }
+      refreshPanels();
+    };
+
+    const prevShipBtn = document.getElementById('prevShipBtn');
+    if (prevShipBtn) prevShipBtn.onclick = () => {
+      const prev = cycleSelectedShip(-1);
+      if (prev) { state.view.x = prev.x; state.view.y = prev.y; }
+      refreshPanels();
+    };
+
+    const endTurnBtn = document.getElementById('endTurnBtn');
+    if (endTurnBtn) endTurnBtn.onclick = runTurn;
   }
 
   function planForBots() {
