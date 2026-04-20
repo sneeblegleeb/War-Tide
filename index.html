@@ -126,6 +126,47 @@
     align-items: center;
   }
   .row + .row { margin-top: 8px; }
+  .actionGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .actionGrid .actionBtn,
+  .footerGrid .actionBtn,
+  .shipJumpGrid .miniBtn {
+    width: 100%;
+    min-height: 42px;
+  }
+  .shipJumpGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .footerGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  #commandPanel {
+    max-height: 34vh;
+    overflow: auto;
+  }
+  button:disabled {
+    opacity: 0.45;
+    filter: saturate(0.7);
+  }
+  .hintBox {
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: rgba(118,199,255,0.08);
+    border: 1px solid rgba(118,199,255,0.18);
+    font-size: 12px;
+    color: #d9efff;
+    margin-top: 8px;
+  }
   input[type="range"] { width: 140px; }
   .pill {
     display: inline-flex;
@@ -252,8 +293,12 @@
   @media (max-width: 760px) {
     .setupGrid { grid-template-columns: 1fr; }
     .shipGrid { grid-template-columns: 1fr; }
-    #statusPanel { max-width: 66vw; }
+    #statusPanel { max-width: 68vw; }
     .legend { grid-template-columns: 1fr; }
+    .actionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .footerGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .shipJumpGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   }
 </style>
 </head>
@@ -293,12 +338,12 @@
   const zoomOutBtn = document.getElementById('zoomOut');
   const centerViewBtn = document.getElementById('centerView');
 
-  const TURN_DURATION = 20;
+  const TURN_DURATION = 8;
   const TURN_DT = 0.25;
   const FLEET_SLOTS = 4;
   const FLEET_BUDGET = 13;
-  const MAP_W = 2400;
-  const MAP_H = 1700;
+  const MAP_W = 3600;
+  const MAP_H = 2600;
   const SHELL_SPLASH_RADIUS = 24;
   const TORPEDO_HIT_RADIUS = 18;
   const MINE_TRIGGER_RADIUS = 30;
@@ -371,7 +416,7 @@
 
   const state = {
     mode: 'setup',
-    view: { x: MAP_W / 2, y: MAP_H / 2, zoom: 0.46 },
+    view: { x: MAP_W / 2, y: MAP_H / 2, zoom: 0.34 },
     pointer: { down: false, dragging: false, startX: 0, startY: 0, lastX: 0, lastY: 0 },
     turn: 1,
     bots: 2,
@@ -478,7 +523,7 @@
 
   function generateIslands() {
     const islands = [];
-    const count = irand(10, 14);
+    const count = irand(16, 22);
     for (let i = 0; i < count; i++) {
       let tries = 0;
       while (tries++ < 160) {
@@ -491,10 +536,10 @@
         };
         const tooClose = islands.some(other => Math.hypot(other.x - island.x, other.y - island.y) < other.r + island.r + 80);
         const tooSpawn = (
-          Math.hypot(island.x - 220, island.y - MAP_H / 2) < island.r + 260 ||
-          Math.hypot(island.x - (MAP_W - 220), island.y - MAP_H / 2) < island.r + 260 ||
-          Math.hypot(island.x - MAP_W / 2, island.y - 180) < island.r + 230 ||
-          Math.hypot(island.x - MAP_W / 2, island.y - (MAP_H - 180)) < island.r + 230
+          Math.hypot(island.x - 240, island.y - MAP_H / 2) < island.r + 320 ||
+          Math.hypot(island.x - (MAP_W - 240), island.y - MAP_H / 2) < island.r + 320 ||
+          Math.hypot(island.x - MAP_W / 2, island.y - 210) < island.r + 290 ||
+          Math.hypot(island.x - MAP_W / 2, island.y - (MAP_H - 210)) < island.r + 290
         );
         if (!tooClose && !tooSpawn) { islands.push(island); break; }
       }
@@ -510,7 +555,7 @@
     const teamStarts = [
       { x: 190, y: MAP_H / 2 },
       { x: MAP_W - 190, y: MAP_H / 2 },
-      { x: MAP_W / 2, y: 160 }
+      { x: MAP_W / 2, y: 190 }
     ];
 
     const playerOffsets = [-90, -25, 35, 95];
@@ -568,7 +613,7 @@
     if (!playerShips.length) return;
     const cx = playerShips.reduce((a, s) => a + s.x, 0) / playerShips.length;
     const cy = playerShips.reduce((a, s) => a + s.y, 0) / playerShips.length;
-    state.view.x = cx + 120;
+    state.view.x = cx + 180;
     state.view.y = cy;
   }
 
@@ -617,6 +662,15 @@
     return fallback;
   }
 
+  function cycleSelectedShip(dir = 1) {
+    const ships = getPlayerShips();
+    if (!ships.length) return null;
+    const idx = Math.max(0, ships.findIndex(s => s.id === state.selectedShipId));
+    const next = ships[(idx + dir + ships.length) % ships.length];
+    state.selectedShipId = next.id;
+    return next;
+  }
+
   function queueAction(ship, action) {
     ship.plan.action = action;
   }
@@ -643,7 +697,7 @@
     modalContent.innerHTML = `
       <h1>Naval Battle</h1>
       <p class="muted" style="margin-top:8px;">Mobile-first prototype: pan the map, zoom in or out, plan orders ship by ship, then end the turn and watch the battle resolve simultaneously.</p>
-      <div class="banner">Defaults in this build: 20-second turns, 4 ships per fleet, 13 fleet points, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
+      <div class="banner">Defaults in this build: 8-second turns, 4 ships per fleet, 13 fleet points, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
       <div class="grid setupGrid">
         <div class="card">
           <div class="sectionTitle">Choose your fleet</div>
@@ -854,38 +908,51 @@
     if (ship.cooldowns.torps > 0) cooldownInfo.push(`Torps ${ship.cooldowns.torps.toFixed(1)}s`);
     if (ship.cooldowns.bombers > 0) cooldownInfo.push(`Bombers ${ship.cooldowns.bombers.toFixed(1)}s`);
     const canSetSubmerge = ship.type === 'submarine';
+    const gunsReady = type.guns && ship.cooldowns.guns <= 0.8 && !(ship.type === 'submarine' && ship.submerged);
+    const torpsReady = type.torpedoes && ship.cooldowns.torps <= 0.8;
+    const bombersReady = type.bombers && ship.cooldowns.bombers <= 0.8;
 
     commandPanel.innerHTML = `
-      <div class="sectionTitle">Command ${shipTypes[ship.type].name}</div>
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+        <div>
+          <div class="sectionTitle">Selected Ship</div>
+          <div><strong>${shipTypes[ship.type].name}</strong> · <span class="small">HP ${fmt(ship.hp)}/${ship.maxHp}</span></div>
+        </div>
+        <div class="pill">Turn ${state.turn} · ${TURN_DURATION}s</div>
+      </div>
       <div class="row">
-        <span class="pill">HP ${fmt(ship.hp)}/${ship.maxHp}</span>
         <span class="pill">Speed ${fmt(ship.speed)}</span>
+        <span class="pill">Throttle ${ship.plan.throttle.toFixed(1)}</span>
         <span class="pill">Detect ${type.detection}</span>
         ${cooldownInfo.length ? `<span class="pill">${cooldownInfo.join(' · ')}</span>` : ''}
       </div>
-      <div class="row">
-        ${getPlayerShips().map(ps => `<button class="miniBtn ${ps.id === ship.id ? 'active' : ''}" data-shipjump="${ps.id}">${shipTypes[ps.type].name[0]}${ps.id.slice(-2)}</button>`).join('')}
+      <div class="shipJumpGrid">
+        ${getPlayerShips().map(ps => `<button class="miniBtn ${ps.id === ship.id ? 'active' : ''}" data-shipjump="${ps.id}">${shipTypes[ps.type].name}<br><span class="small">HP ${fmt(ps.hp)}</span></button>`).join('')}
       </div>
-      <div class="row">
-        <div style="min-width:140px;">
-          <div class="small">Throttle: <strong id="throttleValue">${ship.plan.throttle.toFixed(1)}</strong></div>
-          <input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="${ship.plan.throttle}">
+      <div class="row" style="margin-top:8px; align-items:flex-end;">
+        <div style="flex:1 1 220px; min-width:180px;">
+          <div class="small">Throttle</div>
+          <input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="${ship.plan.throttle}" style="width:100%;">
         </div>
         <button class="actionBtn ${state.pendingAction === 'dest' ? 'active' : ''}" data-action="dest">Set Destination</button>
-        ${type.guns ? `<button class="actionBtn ${state.pendingAction === 'guns' ? 'active' : ''}" data-action="guns">Fire Guns</button>` : ''}
-        ${type.torpedoes ? `<button class="actionBtn ${state.pendingAction === 'torps' ? 'active' : ''}" data-action="torps">Fire Torps</button>` : ''}
-        ${type.mines ? `<button class="actionBtn ${action?.kind === 'mines' ? 'active' : ''}" data-togglemines="1">${action?.kind === 'mines' ? 'Stop Mines' : 'Drop Mines'}</button>` : ''}
-        ${type.bombers ? `<button class="actionBtn ${state.pendingAction === 'bombers' ? 'active' : ''}" data-action="bombers">Send Bombers</button>` : ''}
-        ${canSetSubmerge ? `<button class="actionBtn ${ship.submerged ? 'active warn' : ''}" data-submerge="1">${ship.submerged ? 'Surface' : 'Submerge'}</button>` : ''}
       </div>
-      <div class="row">
+      ${state.pendingAction ? `<div class="hintBox">${actionHint(state.pendingAction)}</div>` : '<div class="hintBox">Tap a ship button to swap ships. Tap the map after choosing a command. Drag empty water to pan.</div>'}
+      <div class="actionGrid">
+        ${type.guns ? `<button class="actionBtn ${state.pendingAction === 'guns' ? 'active' : ''}" data-action="guns" ${gunsReady ? '' : 'disabled'}>Fire Guns</button>` : ''}
+        ${type.torpedoes ? `<button class="actionBtn ${state.pendingAction === 'torps' ? 'active' : ''}" data-action="torps" ${torpsReady ? '' : 'disabled'}>Fire Torps</button>` : ''}
+        ${type.mines ? `<button class="actionBtn ${action?.kind === 'mines' ? 'active' : ''}" data-togglemines="1">${action?.kind === 'mines' ? 'Stop Mines' : 'Drop Mines'}</button>` : ''}
+        ${type.bombers ? `<button class="actionBtn ${state.pendingAction === 'bombers' ? 'active' : ''}" data-action="bombers" ${bombersReady ? '' : 'disabled'}>Send Bombers</button>` : ''}
+        ${canSetSubmerge ? `<button class="actionBtn ${ship.submerged ? 'active warn' : ''}" data-submerge="1">${ship.submerged ? 'Surface' : 'Submerge'}</button>` : ''}
         <button class="actionBtn" id="clearActionBtn">Clear Attack</button>
+      </div>
+      <div class="footerGrid">
+        <button class="actionBtn" id="prevShipBtn">Prev Ship</button>
+        <button class="actionBtn" id="nextShipBtn">Next Ship</button>
         <button class="actionBtn" id="centerShipBtn">Center View</button>
-        <button class="actionBtn warn" id="toggleEnemyGhostsBtn">${visibleEnemies.length} visible ${visibleEnemies.length === 1 ? 'enemy' : 'enemies'}</button>
         <button class="actionBtn danger" id="endTurnBtn">End Turn</button>
       </div>
-      <div class="row small">
-        <div>${describeCurrentOrder(ship)}</div>
+      <div class="row small" style="margin-top:8px;">
+        <div>${describeCurrentOrder(ship)} · Visible enemies: ${visibleEnemies.length}</div>
       </div>
     `;
 
@@ -902,19 +969,15 @@
     const slider = document.getElementById('throttleSlider');
     slider.addEventListener('input', e => {
       ship.plan.throttle = Number(e.target.value);
-      document.getElementById('throttleValue').textContent = ship.plan.throttle.toFixed(1);
       refreshPanels();
     });
 
     commandPanel.querySelectorAll('[data-action]').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (btn.disabled) return;
         const a = btn.getAttribute('data-action');
         state.pendingAction = state.pendingAction === a ? null : a;
-        if (state.pendingAction) {
-          state.message = actionHint(a);
-        } else {
-          state.message = '';
-        }
+        state.message = state.pendingAction ? actionHint(a) : '';
         refreshPanels();
       });
     });
@@ -949,39 +1012,17 @@
       state.view.x = ship.x;
       state.view.y = ship.y;
     });
-    document.getElementById('toggleEnemyGhostsBtn').addEventListener('click', () => {
-      state.message = 'Visible enemies are shown bright. Recently spotted but hidden ships show as faint ghosts.';
+    document.getElementById('prevShipBtn').addEventListener('click', () => {
+      const prev = cycleSelectedShip(-1);
+      if (prev) { state.view.x = prev.x; state.view.y = prev.y; }
+      refreshPanels();
+    });
+    document.getElementById('nextShipBtn').addEventListener('click', () => {
+      const next = cycleSelectedShip(1);
+      if (next) { state.view.x = next.x; state.view.y = next.y; }
       refreshPanels();
     });
     document.getElementById('endTurnBtn').addEventListener('click', runTurn);
-  }
-
-  function describeCurrentOrder(ship) {
-    const parts = [];
-    if (ship.plan.dest) {
-      parts.push(`Heading to (${fmt(ship.plan.dest.x)}, ${fmt(ship.plan.dest.y)})`);
-    } else {
-      parts.push('Holding current heading');
-    }
-    parts.push(`Throttle ${ship.plan.throttle.toFixed(1)}`);
-    if (ship.plan.action) {
-      const a = ship.plan.action;
-      if (a.kind === 'guns') parts.push(`Guns queued at (${fmt(a.target.x)}, ${fmt(a.target.y)})`);
-      if (a.kind === 'torps') parts.push(`Torpedoes queued at (${fmt(a.target.x)}, ${fmt(a.target.y)})`);
-      if (a.kind === 'bombers') parts.push(`Bombers queued at (${fmt(a.target.x)}, ${fmt(a.target.y)})`);
-      if (a.kind === 'mines') parts.push('Will lay mines');
-      if (a.kind === 'submerge') parts.push(a.value ? 'Will submerge' : 'Will surface');
-    }
-    return parts.join(' · ');
-  }
-
-  function actionHint(a) {
-    return {
-      dest: 'Tap the map to set a destination point for this ship.',
-      guns: 'Tap the map to place an artillery target point. Lead moving enemies.',
-      torps: 'Tap the map to launch torpedoes toward that point.',
-      bombers: 'Tap the map to send a bomber strike there.'
-    }[a] || '';
   }
 
   function planForBots() {
