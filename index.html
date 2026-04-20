@@ -16,6 +16,7 @@
     --danger: #ff8080;
     --good: #86e6a8;
     --warn: #ffd280;
+    --dock-height: clamp(220px, 32vh, 300px);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
@@ -39,7 +40,10 @@
   }
   canvas {
     position: absolute;
-    inset: 0;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: var(--dock-height);
     touch-action: none;
   }
   .hud {
@@ -58,8 +62,10 @@
   }
   .bottombar {
     bottom: 0;
-    padding: 10px 10px max(10px, env(safe-area-inset-bottom)) 10px;
-    align-items: flex-end;
+    height: var(--dock-height);
+    padding: 8px 10px max(10px, env(safe-area-inset-bottom)) 10px;
+    align-items: stretch;
+    background: linear-gradient(180deg, rgba(5,12,19,0.12), rgba(5,12,19,0.72) 12%, rgba(5,12,19,0.92));
   }
   .panel {
     pointer-events: auto;
@@ -111,6 +117,7 @@
   #commandPanel {
     flex: 1;
     min-width: 0;
+    height: 100%;
     padding: 10px;
   }
   .sectionTitle {
@@ -152,7 +159,7 @@
     margin-top: 8px;
   }
   #commandPanel {
-    max-height: min(40vh, 340px);
+    max-height: none;
     overflow: auto;
   }
   button:disabled {
@@ -342,8 +349,9 @@
   const TURN_DT = 0.25;
   const FLEET_SLOTS = 4;
   const FLEET_BUDGET = 13;
-  const MAP_W = 3600;
-  const MAP_H = 2600;
+  const MAP_W = 5200;
+  const MAP_H = 3600;
+  const RESOLVE_TIME_SCALE = 1.0;
   const SHELL_SPLASH_RADIUS = 24;
   const TORPEDO_HIT_RADIUS = 18;
   const MINE_TRIGGER_RADIUS = 30;
@@ -352,62 +360,62 @@
   const shipTypes = {
     destroyer: {
       key: 'destroyer', name: 'Destroyer', cost: 2,
-      maxSpeed: 165, acceleration: 45, maxHealth: 95, gunDamage: 22, gunAccuracy: 0.68,
+      maxSpeed: 108, acceleration: 30, maxHealth: 95, gunDamage: 22, gunAccuracy: 0.68,
       reload: 8, projectileSpeed: 400, detection: 270, aa: 28, aaRange: 150,
       torpedoes: { damage: 52, speed: 250, reload: 12, spread: 24, range: 430 },
       mines: { damage: 42, limit: 5 },
       guns: { count: 2, splash: 28 },
       turnRate: 2.0,
-      size: 18,
+      size: 14,
       color: '#9fd8ff'
     },
     cruiser: {
       key: 'cruiser', name: 'Cruiser', cost: 3,
-      maxSpeed: 130, acceleration: 34, maxHealth: 135, gunDamage: 32, gunAccuracy: 0.72,
+      maxSpeed: 86, acceleration: 24, maxHealth: 135, gunDamage: 32, gunAccuracy: 0.72,
       reload: 9, projectileSpeed: 430, detection: 300, aa: 44, aaRange: 190,
       torpedoes: { damage: 46, speed: 240, reload: 14, spread: 18, range: 360 },
       mines: null,
       guns: { count: 3, splash: 34 },
       turnRate: 1.55,
-      size: 22,
+      size: 18,
       color: '#7cb7ff'
     },
     battleship: {
       key: 'battleship', name: 'Battleship', cost: 4,
-      maxSpeed: 98, acceleration: 24, maxHealth: 220, gunDamage: 56, gunAccuracy: 0.79,
+      maxSpeed: 68, acceleration: 18, maxHealth: 220, gunDamage: 56, gunAccuracy: 0.79,
       reload: 12, projectileSpeed: 470, detection: 340, aa: 54, aaRange: 220,
       torpedoes: null,
       mines: null,
       guns: { count: 4, splash: 42 },
       turnRate: 1.05,
-      size: 28,
+      size: 23,
       color: '#c7d6ef'
     },
     carrier: {
       key: 'carrier', name: 'Carrier', cost: 4,
-      maxSpeed: 88, acceleration: 20, maxHealth: 165, gunDamage: 16, gunAccuracy: 0.62,
+      maxSpeed: 60, acceleration: 15, maxHealth: 165, gunDamage: 16, gunAccuracy: 0.62,
       reload: 11, projectileSpeed: 360, detection: 310, aa: 62, aaRange: 240,
       bombers: { damage: 46, speed: 300, health: 75, reload: 12, bombs: 3, spread: 46, range: 700 },
       torpedoes: null,
       mines: null,
       guns: { count: 1, splash: 22 },
       turnRate: 0.95,
-      size: 26,
+      size: 21,
       color: '#ffe097'
     },
     submarine: {
       key: 'submarine', name: 'Submarine', cost: 3,
-      maxSpeed: 110, acceleration: 30, maxHealth: 90, gunDamage: 10, gunAccuracy: 0.58,
+      maxSpeed: 76, acceleration: 22, maxHealth: 90, gunDamage: 10, gunAccuracy: 0.58,
       reload: 11, projectileSpeed: 320, detection: 240, aa: 0, aaRange: 0,
       torpedoes: { damage: 62, speed: 260, reload: 10, spread: 12, range: 460 },
       mines: { damage: 36, limit: 4 },
       guns: { count: 1, splash: 14 },
       turnRate: 1.35,
-      size: 16,
+      size: 13,
       submergedStealth: 0.38,
       submergedSpeedFactor: 0.72,
       turnRateSubmerged: 1.0,
-      sizeSubmerged: 13,
+      sizeSubmerged: 10,
       color: '#8eb3c2'
     }
   };
@@ -416,7 +424,7 @@
 
   const state = {
     mode: 'setup',
-    view: { x: MAP_W / 2, y: MAP_H / 2, zoom: 0.34 },
+    view: { x: MAP_W / 2, y: MAP_H / 2, zoom: 0.24 },
     pointer: { down: false, dragging: false, startX: 0, startY: 0, lastX: 0, lastY: 0 },
     turn: 1,
     bots: 2,
@@ -495,7 +503,7 @@
       cooldowns: { guns: 0, torps: 0, bombers: 0 },
       submerged: false,
       statusText: '',
-      plan: { dest: null, throttle: 0.5, action: null },
+      plan: { dest: null, course: [], courseMode: 'stop', throttle: 0.5, action: null },
       visibleBy: new Set([team]),
       destroyed: false,
       mineDropping: false,
@@ -523,27 +531,37 @@
 
   function generateIslands() {
     const islands = [];
-    const count = irand(16, 22);
-    for (let i = 0; i < count; i++) {
+
+    const addIsland = (minR, maxR, margin, spacing) => {
       let tries = 0;
-      while (tries++ < 160) {
+      while (tries++ < 220) {
         const island = {
-          x: rand(200, MAP_W - 200),
-          y: rand(190, MAP_H - 190),
-          r: rand(50, 115),
+          x: rand(margin, MAP_W - margin),
+          y: rand(margin, MAP_H - margin),
+          r: rand(minR, maxR),
           bump: rand(0.88, 1.18),
           rot: rand(0, Math.PI * 2)
         };
-        const tooClose = islands.some(other => Math.hypot(other.x - island.x, other.y - island.y) < other.r + island.r + 80);
+        const tooClose = islands.some(other => Math.hypot(other.x - island.x, other.y - island.y) < other.r + island.r + spacing);
         const tooSpawn = (
-          Math.hypot(island.x - 240, island.y - MAP_H / 2) < island.r + 320 ||
-          Math.hypot(island.x - (MAP_W - 240), island.y - MAP_H / 2) < island.r + 320 ||
-          Math.hypot(island.x - MAP_W / 2, island.y - 210) < island.r + 290 ||
-          Math.hypot(island.x - MAP_W / 2, island.y - (MAP_H - 210)) < island.r + 290
+          Math.hypot(island.x - MAP_W / 2, island.y - (MAP_H - 240)) < island.r + 420 ||
+          Math.hypot(island.x - MAP_W / 2, island.y - 240) < island.r + 420 ||
+          Math.hypot(island.x - (MAP_W - 260), island.y - MAP_H / 2) < island.r + 380
         );
-        if (!tooClose && !tooSpawn) { islands.push(island); break; }
+        if (!tooClose && !tooSpawn) {
+          islands.push(island);
+          return true;
+        }
       }
-    }
+      return false;
+    };
+
+    const bigCount = irand(2, 3);
+    for (let i = 0; i < bigCount; i++) addIsland(190, 320, 320, 180);
+
+    const smallCount = irand(18, 28);
+    for (let i = 0; i < smallCount; i++) addIsland(35, 95, 110, 46);
+
     return islands;
   }
 
@@ -553,25 +571,25 @@
     battle.islands = generateIslands();
 
     const teamStarts = [
-      { x: 190, y: MAP_H / 2 },
-      { x: MAP_W - 190, y: MAP_H / 2 },
-      { x: MAP_W / 2, y: 190 }
+      { x: MAP_W / 2, y: MAP_H - 220 },
+      { x: MAP_W / 2, y: 220 },
+      { x: MAP_W - 240, y: MAP_H / 2 }
     ];
 
-    const playerOffsets = [-90, -25, 35, 95];
+    const lineOffsets = [-150, -50, 50, 150];
     playerFleet.forEach((typeKey, i) => {
-      battle.ships.push(makeShip(0, typeKey, teamStarts[0].x + rand(-18, 18), teamStarts[0].y + playerOffsets[i], 0));
+      battle.ships.push(makeShip(0, typeKey, teamStarts[0].x + lineOffsets[i] + rand(-20, 20), teamStarts[0].y + rand(-16, 16), -Math.PI / 2));
     });
 
     for (let team = 1; team <= state.bots; team++) {
       const comp = generateAIFleet();
       comp.forEach((typeKey, i) => {
         const base = teamStarts[team];
-        const ang = team === 1 ? Math.PI : Math.PI / 2;
-        const off = playerOffsets[i];
+        const ang = team === 1 ? Math.PI / 2 : Math.PI;
+        const off = lineOffsets[i];
         let x = base.x, y = base.y;
-        if (team === 1) { x += rand(-18,18); y += off; }
-        if (team === 2) { x += off; y += rand(-18,18); }
+        if (team === 1) { x += off + rand(-20, 20); y += rand(-16, 16); }
+        if (team === 2) { x += rand(-16, 16); y += off + rand(-20, 20); }
         battle.ships.push(makeShip(team, typeKey, x, y, ang));
       });
     }
@@ -613,8 +631,8 @@
     if (!playerShips.length) return;
     const cx = playerShips.reduce((a, s) => a + s.x, 0) / playerShips.length;
     const cy = playerShips.reduce((a, s) => a + s.y, 0) / playerShips.length;
-    state.view.x = cx + 180;
-    state.view.y = cy;
+    state.view.x = cx;
+    state.view.y = cy - 320;
   }
 
   function updateVisibility(forceAll = false) {
@@ -705,20 +723,151 @@
   }
 
   function actionHint(kind) {
-    if (kind === 'dest') return 'Tap the map to place a destination marker for the selected ship.';
+    if (kind === 'dest') return 'Tap the map to add course points for the selected ship. Tap Finish Plot when you are done.';
     if (kind === 'guns') return `Tap the map to set a gun target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'guns'))}.`;
     if (kind === 'torps') return `Tap the map to set a torpedo target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'torps'))}.`;
     if (kind === 'bombers') return `Tap the map to send bombers to a strike point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.`;
     return 'Tap the map to place the order.';
   }
 
+  function ensureCoursePlan(ship) {
+    if (!ship.plan.course) ship.plan.course = [];
+    if (!ship.plan.courseMode) ship.plan.courseMode = 'stop';
+    if (ship.plan.dest && ship.plan.course.length === 0) ship.plan.course.push(ship.plan.dest);
+    syncPlanDest(ship);
+  }
+
+  function syncPlanDest(ship) {
+    if (!ship?.plan) return;
+    if (!ship.plan.course) ship.plan.course = [];
+    ship.plan.dest = ship.plan.course.length ? ship.plan.course[0] : null;
+  }
+
+  function addCoursePoint(ship, point) {
+    ensureCoursePlan(ship);
+    const start = ship.plan.course.length ? ship.plan.course[ship.plan.course.length - 1] : { x: ship.x, y: ship.y };
+    const routedPoints = routeSegmentAroundIslands(ship, start, clampCoursePoint(point));
+    ship.plan.course.push(...dedupeCoursePoints(routedPoints));
+    ship.plan.course = dedupeCoursePoints(ship.plan.course);
+    syncPlanDest(ship);
+  }
+
+  function clearCourse(ship) {
+    ensureCoursePlan(ship);
+    ship.plan.course.length = 0;
+    syncPlanDest(ship);
+  }
+
+  function clampCoursePoint(point) {
+    return {
+      x: clamp(point.x, 24, MAP_W - 24),
+      y: clamp(point.y, 24, MAP_H - 24)
+    };
+  }
+
+  function pointInIsland(point, island, pad = 0) {
+    return Math.hypot(point.x - island.x, point.y - island.y) < island.r + pad;
+  }
+
+  function nudgePointOutOfIslands(point, clearance) {
+    let p = clampCoursePoint(point);
+    if (!state.battle) return p;
+    for (const island of state.battle.islands) {
+      const minR = island.r + clearance;
+      const d = Math.hypot(p.x - island.x, p.y - island.y);
+      if (d < minR) {
+        const ang = d > 0.001 ? Math.atan2(p.y - island.y, p.x - island.x) : 0;
+        p = clampCoursePoint({
+          x: island.x + Math.cos(ang) * minR,
+          y: island.y + Math.sin(ang) * minR
+        });
+      }
+    }
+    return p;
+  }
+
+  function polylineLength(start, points) {
+    let total = 0;
+    let prev = start;
+    for (const p of points) {
+      total += Math.hypot(p.x - prev.x, p.y - prev.y);
+      prev = p;
+    }
+    return total;
+  }
+
+  function dedupeCoursePoints(points) {
+    const out = [];
+    for (const p of points) {
+      if (!out.length || Math.hypot(out[out.length - 1].x - p.x, out[out.length - 1].y - p.y) > 12) {
+        out.push(clampCoursePoint(p));
+      }
+    }
+    return out;
+  }
+
+  function findBlockingIsland(ship, start, end) {
+    if (!state.battle) return null;
+    const clearance = shipRadius(ship) + 34;
+    let best = null;
+    let bestAlong = Infinity;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const l2 = dx * dx + dy * dy || 1;
+    for (const island of state.battle.islands) {
+      if (!lineCircleHit(start, end, island, island.r + clearance)) continue;
+      const t = clamp(((island.x - start.x) * dx + (island.y - start.y) * dy) / l2, 0, 1);
+      if (t < bestAlong) {
+        bestAlong = t;
+        best = island;
+      }
+    }
+    return best;
+  }
+
+  function routeSegmentAroundIslands(ship, start, end, depth = 0) {
+    end = clampCoursePoint(end);
+    if (!state.battle || depth > 3) return [end];
+    const island = findBlockingIsland(ship, start, end);
+    if (!island) return [end];
+
+    const clearance = island.r + shipRadius(ship) + 58;
+    const startA = Math.atan2(start.y - island.y, start.x - island.x);
+    const endA = Math.atan2(end.y - island.y, end.x - island.x);
+    const candidates = [];
+
+    for (const side of [1, -1]) {
+      const p1 = nudgePointOutOfIslands({
+        x: island.x + Math.cos(startA + side * 1.05) * clearance,
+        y: island.y + Math.sin(startA + side * 1.05) * clearance
+      }, shipRadius(ship) + 24);
+
+      const p2 = nudgePointOutOfIslands({
+        x: island.x + Math.cos(endA - side * 1.05) * clearance,
+        y: island.y + Math.sin(endA - side * 1.05) * clearance
+      }, shipRadius(ship) + 24);
+
+      let path = [];
+      path = path.concat(routeSegmentAroundIslands(ship, start, p1, depth + 1));
+      path = path.concat(routeSegmentAroundIslands(ship, p1, p2, depth + 1));
+      path = path.concat(routeSegmentAroundIslands(ship, p2, end, depth + 1));
+      path = dedupeCoursePoints(path);
+      candidates.push({ path, score: polylineLength(start, path) });
+    }
+
+    candidates.sort((a, b) => a.score - b.score);
+    return candidates[0]?.path || [end];
+  }
+
   function describeCurrentOrder(ship) {
     if (!ship) return 'No ship selected';
+    ensureCoursePlan(ship);
     const parts = [];
-    if (ship.plan.dest) {
-      parts.push(`Dest ${fmt(ship.plan.dest.x)}, ${fmt(ship.plan.dest.y)}`);
+    if (ship.plan.course.length) {
+      parts.push(`Course ${ship.plan.course.length} pt${ship.plan.course.length === 1 ? '' : 's'}`);
+      parts.push(ship.plan.courseMode === 'stop' ? 'stop at end' : 'keep heading');
     } else {
-      parts.push('No destination');
+      parts.push('No course');
     }
     if (ship.plan.action?.kind === 'guns') parts.push(`Guns queued @ ${fmt(ship.plan.action.target.x)}, ${fmt(ship.plan.action.target.y)}`);
     else if (ship.plan.action?.kind === 'torps') parts.push(`Torps queued @ ${fmt(ship.plan.action.target.x)}, ${fmt(ship.plan.action.target.y)}`);
@@ -954,6 +1103,7 @@
     }
 
     try {
+      ensureCoursePlan(ship);
       const type = shipTypes[ship.type];
       const action = ship.plan.action;
       const visibleEnemies = state.battle.ships.filter(s => s.team !== 0 && !s.destroyed && canPlayerSee(s)).length;
@@ -984,7 +1134,13 @@
       html += '<div class="small" id="throttleLabel">Throttle</div>';
       html += '<input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="' + ship.plan.throttle + '" style="width:100%;">';
       html += '</div>';
-      html += '<button class="actionBtn ' + (state.pendingAction === 'dest' ? 'active' : '') + '" data-action="dest">Set Destination</button>';
+      html += '<button class="actionBtn ' + (state.pendingAction === 'dest' ? 'active' : '') + '" data-action="dest">' + (state.pendingAction === 'dest' ? 'Plotting…' : 'Plot Course') + '</button>';
+      html += '</div>';
+
+      html += '<div class="row">';
+      html += '<button class="actionBtn" id="finishPlotBtn" ' + (state.pendingAction === 'dest' ? '' : 'disabled') + '>Finish Plot</button>';
+      html += '<button class="actionBtn" id="courseModeBtn">' + (ship.plan.courseMode === 'stop' ? 'End: Stop' : 'End: Keep Heading') + '</button>';
+      html += '<button class="actionBtn" id="clearCourseBtn" ' + (ship.plan.course && ship.plan.course.length ? '' : 'disabled') + '>Clear Course</button>';
       html += '</div>';
 
       html += '<div class="hintBox">' + escapeHtml(state.pendingAction ? actionHint(state.pendingAction) : 'Tap a command, then tap the map. Drag empty water to pan. Use pinch or +/- to zoom.') + '</div>';
@@ -1012,8 +1168,9 @@
         btn.onclick = () => {
           const id = btn.getAttribute('data-shipjump');
           state.selectedShipId = id;
+          clearPendingAction();
           const s2 = getSelectedShip();
-          if (s2) { state.view.x = s2.x; state.view.y = s2.y; }
+          if (s2) { state.view.x = s2.x; state.view.y = s2.y; ensureCoursePlan(s2); }
           refreshPanels();
         };
       });
@@ -1028,6 +1185,28 @@
         if (throttleLabel) throttleLabel.textContent = 'Throttle (' + ship.plan.throttle.toFixed(1) + ')';
         if (orderSummary) orderSummary.textContent = describeCurrentOrder(ship) + ' · Visible enemies: ' + visibleEnemies;
         renderStatusPanel();
+      };
+
+      const finishPlotBtn = document.getElementById('finishPlotBtn');
+      if (finishPlotBtn) finishPlotBtn.onclick = () => {
+        clearPendingAction();
+        state.message = ship.plan.course.length ? 'Course plotting finished.' : 'No course points set.';
+        refreshPanels();
+      };
+
+      const courseModeBtn = document.getElementById('courseModeBtn');
+      if (courseModeBtn) courseModeBtn.onclick = () => {
+        ship.plan.courseMode = ship.plan.courseMode === 'stop' ? 'keep' : 'stop';
+        state.message = ship.plan.courseMode === 'stop' ? 'Ship will stop after the final course point.' : 'Ship will keep its heading after the final course point.';
+        refreshPanels();
+      };
+
+      const clearCourseBtn = document.getElementById('clearCourseBtn');
+      if (clearCourseBtn) clearCourseBtn.onclick = () => {
+        clearCourse(ship);
+        if (state.pendingAction === 'dest') clearPendingAction();
+        state.message = 'Course cleared.';
+        refreshPanels();
       };
 
       commandPanel.querySelectorAll('[data-action]').forEach(btn => {
@@ -1073,12 +1252,14 @@
       const prevShipBtn = document.getElementById('prevShipBtn');
       if (prevShipBtn) prevShipBtn.onclick = () => {
         const prev = cycleSelectedShip(-1);
+        clearPendingAction();
         if (prev) { state.view.x = prev.x; state.view.y = prev.y; }
         refreshPanels();
       };
       const nextShipBtn = document.getElementById('nextShipBtn');
       if (nextShipBtn) nextShipBtn.onclick = () => {
         const next = cycleSelectedShip(1);
+        clearPendingAction();
         if (next) { state.view.x = next.x; state.view.y = next.y; }
         refreshPanels();
       };
@@ -1137,7 +1318,8 @@
         }
         dest.x = clamp(dest.x, 50, MAP_W - 50);
         dest.y = clamp(dest.y, 50, MAP_H - 50);
-        ship.plan.dest = dest;
+        ship.plan.course = [dest];
+        syncPlanDest(ship);
 
         if (ship.type === 'submarine') {
           if (d < 320 && Math.random() < 0.7) ship.plan.action = { kind: 'submerge', value: true };
@@ -1154,7 +1336,8 @@
           ship.plan.action = { kind: 'mines' };
         }
       } else {
-        ship.plan.dest = { x: clamp(ship.x + rand(-120, 120), 50, MAP_W - 50), y: clamp(ship.y + rand(-120, 120), 50, MAP_H - 50) };
+        ship.plan.course = [{ x: clamp(ship.x + rand(-120, 120), 50, MAP_W - 50), y: clamp(ship.y + rand(-120, 120), 50, MAP_H - 50) }];
+        syncPlanDest(ship);
       }
     }
   }
@@ -1321,6 +1504,7 @@
     if (ship.speed < targetSpeed) ship.speed = Math.min(targetSpeed, ship.speed + accel * dt);
     else ship.speed = Math.max(targetSpeed, ship.speed - accel * dt);
 
+    ensureCoursePlan(ship);
     let desiredAngle = ship.angle;
     if (ship.plan.dest) {
       const toDest = Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y);
@@ -1338,19 +1522,39 @@
     ship.y = clamp(ship.y, 20, MAP_H - 20);
 
     for (const island of state.battle.islands) {
-      const rad = island.r + shipRadius(ship) + 4;
+      const rad = island.r + shipRadius(ship) + 6;
       const d = Math.hypot(ship.x - island.x, ship.y - island.y);
       if (d < rad) {
-        const ang = Math.atan2(ship.y - island.y, ship.x - island.x);
-        ship.x = island.x + Math.cos(ang) * rad;
-        ship.y = island.y + Math.sin(ang) * rad;
-        ship.speed *= 0.35;
+        const outAng = Math.atan2(ship.y - island.y, ship.x - island.x);
+        ship.x = island.x + Math.cos(outAng) * rad;
+        ship.y = island.y + Math.sin(outAng) * rad;
+
+        const activeDest = ship.plan.dest || { x: ship.x + Math.cos(ship.angle) * 120, y: ship.y + Math.sin(ship.angle) * 120 };
+        const aroundSign = normAngle(Math.atan2(activeDest.y - island.y, activeDest.x - island.x) - outAng) >= 0 ? 1 : -1;
+        const tangentAng = outAng + aroundSign * Math.PI / 2;
+        ship.angle = tangentAng;
+        ship.x += Math.cos(tangentAng) * 8;
+        ship.y += Math.sin(tangentAng) * 8;
+        ship.speed = Math.max(ship.speed * 0.7, 18);
+
+        if (ship.plan.dest && lineCircleHit(ship, ship.plan.dest, island, island.r + shipRadius(ship) + 16)) {
+          const reroute = routeSegmentAroundIslands(ship, { x: ship.x, y: ship.y }, ship.plan.dest);
+          if (reroute.length > 1) {
+            ship.plan.course = reroute.concat((ship.plan.course || []).slice(1));
+            ship.plan.course = dedupeCoursePoints(ship.plan.course);
+            syncPlanDest(ship);
+          }
+        }
       }
     }
 
     const moveDist = Math.hypot(ship.x - old.x, ship.y - old.y);
-    if (ship.plan.dest && Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y) < 18) {
-      ship.plan.dest = null;
+    if (ship.plan.dest && Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y) < 24) {
+      if (ship.plan.course && ship.plan.course.length) ship.plan.course.shift();
+      syncPlanDest(ship);
+      if (!ship.plan.dest && ship.plan.courseMode === 'stop') {
+        ship.plan.throttle = 0;
+      }
     }
     ship.statusText = moveDist < 1 ? 'holding' : 'moving';
   }
@@ -1655,18 +1859,37 @@
 
   function drawPaths() {
     for (const ship of getPlayerShips()) {
+      ensureCoursePlan(ship);
       const selected = ship.id === state.selectedShipId;
-      if (!ship.plan.dest) continue;
-      const from = worldToScreen(ship.x, ship.y);
-      const to = worldToScreen(ship.plan.dest.x, ship.plan.dest.y);
+      if (!ship.plan.course.length) continue;
+      const first = worldToScreen(ship.x, ship.y);
       ctx.strokeStyle = selected ? 'rgba(118,199,255,0.95)' : 'rgba(118,199,255,0.5)';
       ctx.lineWidth = selected ? 2.4 : 1.4;
       ctx.setLineDash([8, 6]);
       ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
+      ctx.moveTo(first.x, first.y);
+      for (const pt of ship.plan.course) {
+        const sp = worldToScreen(pt.x, pt.y);
+        ctx.lineTo(sp.x, sp.y);
+      }
       ctx.stroke();
       ctx.setLineDash([]);
+
+      ship.plan.course.forEach((pt, idx) => {
+        const wp = worldToScreen(pt.x, pt.y);
+        ctx.fillStyle = idx === ship.plan.course.length - 1 ? 'rgba(16,40,56,0.92)' : 'rgba(12,28,42,0.8)';
+        ctx.beginPath();
+        ctx.arc(wp.x, wp.y, idx === ship.plan.course.length - 1 ? 11 : 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = idx === ship.plan.course.length - 1 && ship.plan.courseMode === 'keep' ? 'rgba(255,210,120,0.9)' : 'rgba(118,199,255,0.7)';
+        ctx.lineWidth = 1.8;
+        ctx.stroke();
+        ctx.fillStyle = '#eaf7ff';
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(idx + 1), wp.x, wp.y + 0.5);
+      });
 
       const markers = predictSteps(ship);
       markers.forEach((m, idx) => {
@@ -1698,22 +1921,31 @@
   }
 
   function predictSteps(ship) {
-    if (!ship.plan.dest) return [];
+    ensureCoursePlan(ship);
+    if (!ship.plan.course.length) return [];
     const type = shipTypes[ship.type];
     const factor = ship.type === 'submarine' && ship.submerged ? type.submergedSpeedFactor : 1;
     const maxSpeed = type.maxSpeed * factor;
-    const desiredSpeed = maxSpeed * ship.plan.throttle;
+    let desiredSpeed = maxSpeed * ship.plan.throttle;
     const steps = [];
+    const course = ship.plan.course.map(pt => ({ x: pt.x, y: pt.y }));
     let x = ship.x, y = ship.y, speed = ship.speed, ang = ship.angle;
     for (let turn = 1; turn <= 4; turn++) {
       const span = TURN_DURATION;
       for (let t = 0; t < span; t += TURN_DT) {
-        const desiredAngle = Math.atan2(ship.plan.dest.y - y, ship.plan.dest.x - x);
-        ang += clamp(normAngle(desiredAngle - ang), -type.turnRate * TURN_DT, type.turnRate * TURN_DT);
+        const dest = course[0] || null;
+        if (dest) {
+          const desiredAngle = Math.atan2(dest.y - y, dest.x - x);
+          ang += clamp(normAngle(desiredAngle - ang), -type.turnRate * TURN_DT, type.turnRate * TURN_DT);
+        }
+        if (!dest && ship.plan.courseMode === 'stop') desiredSpeed = 0;
         if (speed < desiredSpeed) speed = Math.min(desiredSpeed, speed + type.acceleration * TURN_DT);
         else speed = Math.max(desiredSpeed, speed - type.acceleration * TURN_DT);
         x += Math.cos(ang) * speed * TURN_DT;
         y += Math.sin(ang) * speed * TURN_DT;
+        if (dest && Math.hypot(dest.x - x, dest.y - y) < 24) {
+          course.shift();
+        }
       }
       steps.push({ x, y });
     }
@@ -1905,6 +2137,7 @@
     if (state.mode !== 'battle' || state.battle.turnPhase !== 'planning') return;
     const selectedShip = getSelectedShip();
     if (!selectedShip) return;
+    ensureCoursePlan(selectedShip);
 
     const tappedShip = findShipNear(world.x, world.y, 28 / state.view.zoom);
     if (tappedShip && tappedShip.team === 0) {
@@ -1916,9 +2149,8 @@
     }
 
     if (state.pendingAction === 'dest') {
-      selectedShip.plan.dest = { x: clamp(world.x, 0, MAP_W), y: clamp(world.y, 0, MAP_H) };
-      clearPendingAction();
-      state.message = 'Destination set.';
+      addCoursePoint(selectedShip, { x: world.x, y: world.y });
+      state.message = `Course point ${selectedShip.plan.course.length} added. Tap more points or Finish Plot.`;
       refreshPanels();
       return;
     }
@@ -1967,8 +2199,9 @@
   }
 
   function resizeCanvas() {
-    const w = Math.floor(window.innerWidth);
-    const h = Math.floor(window.innerHeight);
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, Math.floor(rect.width));
+    const h = Math.max(1, Math.floor(rect.height));
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
@@ -2064,7 +2297,7 @@
 
   function zoomAt(screenX, screenY, factor) {
     const before = screenToWorld(screenX, screenY);
-    state.view.zoom = clamp(state.view.zoom * factor, 0.25, 1.65);
+    state.view.zoom = clamp(state.view.zoom * factor, 0.16, 2.0);
     const after = screenToWorld(screenX, screenY);
     state.view.x += before.x - after.x;
     state.view.y += before.y - after.y;
@@ -2074,8 +2307,9 @@
   function clampView() {
     const halfW = canvas.width / 2 / state.view.zoom;
     const halfH = canvas.height / 2 / state.view.zoom;
-    state.view.x = clamp(state.view.x, halfW, MAP_W - halfW);
-    state.view.y = clamp(state.view.y, halfH, MAP_H - halfH);
+    const extra = 320;
+    state.view.x = clamp(state.view.x, halfW - extra, MAP_W - halfW + extra);
+    state.view.y = clamp(state.view.y, halfH - extra, MAP_H - halfH + extra);
   }
 
   function gameLoop() {
@@ -2083,7 +2317,7 @@
       renderCommandPanel();
     }
     if (state.mode === 'battle' && state.battle && state.battle.turnPhase === 'resolving' && !state.battle.winner) {
-      resolveTurnStep(1 / 60 * 2.25);
+      resolveTurnStep(1 / 60 * RESOLVE_TIME_SCALE);
     }
     render();
     requestAnimationFrame(gameLoop);
