@@ -1,0 +1,1969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>Turn-Based Naval Battle</title>
+<style>
+  :root {
+    --bg: #07131f;
+    --panel: rgba(10,20,32,0.94);
+    --panel2: rgba(19,32,48,0.95);
+    --line: rgba(255,255,255,0.14);
+    --text: #eaf4ff;
+    --muted: #9db8cf;
+    --accent: #76c7ff;
+    --danger: #ff8080;
+    --good: #86e6a8;
+    --warn: #ffd280;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  #app {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 20% 20%, rgba(90,140,200,0.08), transparent 18%),
+      radial-gradient(circle at 70% 60%, rgba(120,180,255,0.05), transparent 20%),
+      linear-gradient(180deg, #0a1d30, #07131f 40%, #06101b);
+  }
+  canvas {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+  }
+  .hud {
+    position: absolute;
+    left: 0;
+    right: 0;
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+    padding: max(10px, env(safe-area-inset-top)) 10px 10px 10px;
+  }
+  .topbar {
+    top: 0;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .bottombar {
+    bottom: 0;
+    padding: 10px 10px max(10px, env(safe-area-inset-bottom)) 10px;
+    align-items: flex-end;
+  }
+  .panel {
+    pointer-events: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+    backdrop-filter: blur(8px);
+  }
+  #statusPanel {
+    padding: 10px 12px;
+    min-width: 180px;
+    max-width: 55vw;
+  }
+  #zoomPanel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+  }
+  #zoomPanel button,
+  .actionBtn,
+  .miniBtn,
+  .shipTypeBtn,
+  .fleetBtn,
+  .modeBtn,
+  .startBtn {
+    appearance: none;
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.06);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-weight: 650;
+  }
+  button:active { transform: scale(0.98); }
+  .actionBtn.active,
+  .modeBtn.active,
+  .shipTypeBtn.active,
+  .fleetBtn.active,
+  .miniBtn.active {
+    background: rgba(118,199,255,0.2);
+    border-color: rgba(118,199,255,0.5);
+    color: #dff4ff;
+  }
+  .actionBtn.warn { color: #fff1c8; }
+  .actionBtn.danger { color: #ffd2d2; }
+  #commandPanel {
+    flex: 1;
+    min-width: 0;
+    padding: 10px;
+  }
+  .sectionTitle {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .row + .row { margin-top: 8px; }
+  input[type="range"] { width: 140px; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(3,8,15,0.6);
+    backdrop-filter: blur(8px);
+    padding: 14px;
+    overflow: auto;
+  }
+  #overlay.show { display: flex; }
+  .modal {
+    width: min(820px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    background: rgba(11,18,28,0.97);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.4);
+  }
+  .modal h1, .modal h2, .modal h3, .modal p { margin: 0; }
+  .modal h1 { font-size: 22px; }
+  .muted { color: var(--muted); }
+  .grid {
+    display: grid;
+    gap: 12px;
+  }
+  .setupGrid {
+    grid-template-columns: 1.2fr 1fr;
+    margin-top: 14px;
+  }
+  .card {
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+  .shipGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 10px;
+    font-size: 12px;
+    margin-top: 10px;
+    color: var(--muted);
+  }
+  .fleetList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .fleetItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+  }
+  .battleLog {
+    max-height: 180px;
+    overflow: auto;
+    font-size: 12px;
+    color: var(--muted);
+    padding-right: 6px;
+  }
+  .battleLog div + div { margin-top: 4px; }
+  .footerRow {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+    margin-top: 14px;
+    flex-wrap: wrap;
+  }
+  .small {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  select {
+    background: rgba(255,255,255,0.07);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  .legend {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .banner {
+    margin-top: 10px;
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(118,199,255,0.08);
+    border: 1px solid rgba(118,199,255,0.18);
+    font-size: 13px;
+    color: #d8efff;
+  }
+  @media (max-width: 760px) {
+    .setupGrid { grid-template-columns: 1fr; }
+    .shipGrid { grid-template-columns: 1fr; }
+    #statusPanel { max-width: 66vw; }
+    .legend { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="game"></canvas>
+
+  <div class="hud topbar">
+    <div id="statusPanel" class="panel"></div>
+    <div id="zoomPanel" class="panel">
+      <button id="zoomIn">＋</button>
+      <button id="zoomOut">－</button>
+      <button id="centerView">◎</button>
+    </div>
+  </div>
+
+  <div class="hud bottombar">
+    <div id="commandPanel" class="panel"></div>
+  </div>
+
+  <div id="overlay" class="show">
+    <div class="modal" id="modalContent"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const modalContent = document.getElementById('modalContent');
+  const statusPanel = document.getElementById('statusPanel');
+  const commandPanel = document.getElementById('commandPanel');
+  const zoomInBtn = document.getElementById('zoomIn');
+  const zoomOutBtn = document.getElementById('zoomOut');
+  const centerViewBtn = document.getElementById('centerView');
+
+  const TURN_DURATION = 20;
+  const TURN_DT = 0.25;
+  const FLEET_SLOTS = 4;
+  const FLEET_BUDGET = 13;
+  const MAP_W = 2400;
+  const MAP_H = 1700;
+  const SHELL_SPLASH_RADIUS = 24;
+  const TORPEDO_HIT_RADIUS = 18;
+  const MINE_TRIGGER_RADIUS = 30;
+  const VIS_RECHECK_RATE = 0.5;
+
+  const shipTypes = {
+    destroyer: {
+      key: 'destroyer', name: 'Destroyer', cost: 2,
+      maxSpeed: 165, acceleration: 45, maxHealth: 95, gunDamage: 22, gunAccuracy: 0.68,
+      reload: 8, projectileSpeed: 400, detection: 270, aa: 28, aaRange: 150,
+      torpedoes: { damage: 52, speed: 250, reload: 12, spread: 24, range: 430 },
+      mines: { damage: 42, limit: 5 },
+      guns: { count: 2, splash: 28 },
+      turnRate: 2.0,
+      size: 18,
+      color: '#9fd8ff'
+    },
+    cruiser: {
+      key: 'cruiser', name: 'Cruiser', cost: 3,
+      maxSpeed: 130, acceleration: 34, maxHealth: 135, gunDamage: 32, gunAccuracy: 0.72,
+      reload: 9, projectileSpeed: 430, detection: 300, aa: 44, aaRange: 190,
+      torpedoes: { damage: 46, speed: 240, reload: 14, spread: 18, range: 360 },
+      mines: null,
+      guns: { count: 3, splash: 34 },
+      turnRate: 1.55,
+      size: 22,
+      color: '#7cb7ff'
+    },
+    battleship: {
+      key: 'battleship', name: 'Battleship', cost: 4,
+      maxSpeed: 98, acceleration: 24, maxHealth: 220, gunDamage: 56, gunAccuracy: 0.79,
+      reload: 12, projectileSpeed: 470, detection: 340, aa: 54, aaRange: 220,
+      torpedoes: null,
+      mines: null,
+      guns: { count: 4, splash: 42 },
+      turnRate: 1.05,
+      size: 28,
+      color: '#c7d6ef'
+    },
+    carrier: {
+      key: 'carrier', name: 'Carrier', cost: 4,
+      maxSpeed: 88, acceleration: 20, maxHealth: 165, gunDamage: 16, gunAccuracy: 0.62,
+      reload: 11, projectileSpeed: 360, detection: 310, aa: 62, aaRange: 240,
+      bombers: { damage: 46, speed: 300, health: 75, reload: 12, bombs: 3, spread: 46, range: 700 },
+      torpedoes: null,
+      mines: null,
+      guns: { count: 1, splash: 22 },
+      turnRate: 0.95,
+      size: 26,
+      color: '#ffe097'
+    },
+    submarine: {
+      key: 'submarine', name: 'Submarine', cost: 3,
+      maxSpeed: 110, acceleration: 30, maxHealth: 90, gunDamage: 10, gunAccuracy: 0.58,
+      reload: 11, projectileSpeed: 320, detection: 240, aa: 0, aaRange: 0,
+      torpedoes: { damage: 62, speed: 260, reload: 10, spread: 12, range: 460 },
+      mines: { damage: 36, limit: 4 },
+      guns: { count: 1, splash: 14 },
+      turnRate: 1.35,
+      size: 16,
+      submergedStealth: 0.38,
+      submergedSpeedFactor: 0.72,
+      turnRateSubmerged: 1.0,
+      sizeSubmerged: 13,
+      color: '#8eb3c2'
+    }
+  };
+
+  const teamColors = ['#72c4ff', '#ff9a8c', '#9deaa4'];
+
+  const state = {
+    mode: 'setup',
+    view: { x: MAP_W / 2, y: MAP_H / 2, zoom: 0.46 },
+    pointer: { down: false, dragging: false, startX: 0, startY: 0, lastX: 0, lastY: 0 },
+    turn: 1,
+    bots: 2,
+    setup: {
+      selectedType: 'destroyer',
+      fleet: []
+    },
+    battle: null,
+    selectedShipId: null,
+    pendingAction: null,
+    message: '',
+    logs: []
+  };
+
+  function log(msg) {
+    state.logs.unshift(msg);
+    if (state.logs.length > 60) state.logs.length = 60;
+  }
+
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+  function irand(min, max) { return Math.floor(rand(min, max + 1)); }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function angleTo(a, b) { return Math.atan2(b.y - a.y, b.x - a.x); }
+  function normAngle(a) {
+    while (a > Math.PI) a -= Math.PI * 2;
+    while (a < -Math.PI) a += Math.PI * 2;
+    return a;
+  }
+  function fmt(n) { return Math.round(n); }
+  function worldToScreen(x, y) {
+    return {
+      x: (x - state.view.x) * state.view.zoom + canvas.width / 2,
+      y: (y - state.view.y) * state.view.zoom + canvas.height / 2
+    };
+  }
+  function screenToWorld(x, y) {
+    return {
+      x: (x - canvas.width / 2) / state.view.zoom + state.view.x,
+      y: (y - canvas.height / 2) / state.view.zoom + state.view.y
+    };
+  }
+
+  function lineCircleHit(p1, p2, c, r) {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const l2 = dx * dx + dy * dy;
+    if (l2 <= 0.00001) return Math.hypot(p1.x - c.x, p1.y - c.y) <= r;
+    const t = clamp(((c.x - p1.x) * dx + (c.y - p1.y) * dy) / l2, 0, 1);
+    const px = p1.x + dx * t;
+    const py = p1.y + dy * t;
+    return Math.hypot(px - c.x, py - c.y) <= r;
+  }
+
+  function segmentIntersectsIsland(a, b, islands) {
+    for (const island of islands) {
+      if (lineCircleHit(a, b, island, island.r + 8)) return true;
+    }
+    return false;
+  }
+
+  function makeShip(team, typeKey, x, y, angle = 0) {
+    const s = shipTypes[typeKey];
+    return {
+      id: 'S' + Math.random().toString(36).slice(2, 9),
+      team,
+      type: typeKey,
+      x,
+      y,
+      angle,
+      speed: 0,
+      throttle: 0.5,
+      hp: s.maxHealth,
+      maxHp: s.maxHealth,
+      cooldowns: { guns: 0, torps: 0, bombers: 0 },
+      submerged: false,
+      statusText: '',
+      plan: { dest: null, throttle: 0.5, action: null },
+      visibleBy: new Set([team]),
+      destroyed: false,
+      mineDropping: false,
+      lastSeenTurnByPlayer: 0,
+      aiMemory: { targetId: null }
+    };
+  }
+
+  function resetBattleState() {
+    state.battle = {
+      ships: [],
+      islands: [],
+      projectiles: [],
+      torpedoes: [],
+      mines: [],
+      aircraft: [],
+      explosions: [],
+      turnPhase: 'planning',
+      simTime: 0,
+      winner: null,
+      lastVisibilityCheck: 0,
+      previews: []
+    };
+  }
+
+  function generateIslands() {
+    const islands = [];
+    const count = irand(10, 14);
+    for (let i = 0; i < count; i++) {
+      let tries = 0;
+      while (tries++ < 160) {
+        const island = {
+          x: rand(200, MAP_W - 200),
+          y: rand(190, MAP_H - 190),
+          r: rand(50, 115),
+          bump: rand(0.88, 1.18),
+          rot: rand(0, Math.PI * 2)
+        };
+        const tooClose = islands.some(other => Math.hypot(other.x - island.x, other.y - island.y) < other.r + island.r + 80);
+        const tooSpawn = (
+          Math.hypot(island.x - 220, island.y - MAP_H / 2) < island.r + 260 ||
+          Math.hypot(island.x - (MAP_W - 220), island.y - MAP_H / 2) < island.r + 260 ||
+          Math.hypot(island.x - MAP_W / 2, island.y - 180) < island.r + 230 ||
+          Math.hypot(island.x - MAP_W / 2, island.y - (MAP_H - 180)) < island.r + 230
+        );
+        if (!tooClose && !tooSpawn) { islands.push(island); break; }
+      }
+    }
+    return islands;
+  }
+
+  function spawnTeams() {
+    const playerFleet = state.setup.fleet.slice();
+    const battle = state.battle;
+    battle.islands = generateIslands();
+
+    const teamStarts = [
+      { x: 190, y: MAP_H / 2 },
+      { x: MAP_W - 190, y: MAP_H / 2 },
+      { x: MAP_W / 2, y: 160 }
+    ];
+
+    const playerOffsets = [-90, -25, 35, 95];
+    playerFleet.forEach((typeKey, i) => {
+      battle.ships.push(makeShip(0, typeKey, teamStarts[0].x + rand(-18, 18), teamStarts[0].y + playerOffsets[i], 0));
+    });
+
+    for (let team = 1; team <= state.bots; team++) {
+      const comp = generateAIFleet();
+      comp.forEach((typeKey, i) => {
+        const base = teamStarts[team];
+        const ang = team === 1 ? Math.PI : Math.PI / 2;
+        const off = playerOffsets[i];
+        let x = base.x, y = base.y;
+        if (team === 1) { x += rand(-18,18); y += off; }
+        if (team === 2) { x += off; y += rand(-18,18); }
+        battle.ships.push(makeShip(team, typeKey, x, y, ang));
+      });
+    }
+
+    centerOnPlayerFleet();
+    updateVisibility(true);
+    state.selectedShipId = battle.ships.find(s => s.team === 0)?.id || null;
+    log('Battle started. Plot your first turn.');
+  }
+
+  function generateAIFleet() {
+    const keys = Object.keys(shipTypes);
+    const fleet = [];
+    let points = FLEET_BUDGET;
+    while (fleet.length < FLEET_SLOTS) {
+      const remainingSlots = FLEET_SLOTS - fleet.length;
+      const minCostLeft = remainingSlots - 1;
+      const affordable = keys.filter(k => shipTypes[k].cost <= points - minCostLeft + 0.001);
+      const weighted = [];
+      affordable.forEach(k => {
+        const t = shipTypes[k];
+        let weight = 1;
+        if (k === 'destroyer') weight = 2.3;
+        if (k === 'cruiser') weight = 2.0;
+        if (k === 'battleship') weight = 1.8;
+        if (k === 'carrier') weight = 1.2;
+        if (k === 'submarine') weight = 1.5;
+        for (let i = 0; i < Math.round(weight * 2); i++) weighted.push(k);
+      });
+      const pick = weighted[irand(0, weighted.length - 1)] || 'destroyer';
+      fleet.push(pick);
+      points -= shipTypes[pick].cost;
+    }
+    return fleet;
+  }
+
+  function centerOnPlayerFleet() {
+    const playerShips = state.battle.ships.filter(s => s.team === 0 && !s.destroyed);
+    if (!playerShips.length) return;
+    const cx = playerShips.reduce((a, s) => a + s.x, 0) / playerShips.length;
+    const cy = playerShips.reduce((a, s) => a + s.y, 0) / playerShips.length;
+    state.view.x = cx + 120;
+    state.view.y = cy;
+  }
+
+  function updateVisibility(forceAll = false) {
+    const battle = state.battle;
+    if (!battle) return;
+    battle.ships.forEach(s => {
+      s.visibleBy = new Set([s.team]);
+    });
+
+    for (const observer of battle.ships) {
+      if (observer.destroyed) continue;
+      const obsType = shipTypes[observer.type];
+      for (const target of battle.ships) {
+        if (target.destroyed || target.team === observer.team) continue;
+        let detect = obsType.detection;
+        if (target.type === 'submarine' && target.submerged) {
+          detect *= 0.52;
+        }
+        if (target.type !== 'submarine' && target.speed < 14) detect *= 0.94;
+        if (Math.hypot(observer.x - target.x, observer.y - target.y) > detect) continue;
+        if (segmentIntersectsIsland(observer, target, battle.islands)) continue;
+        target.visibleBy.add(observer.team);
+        if (observer.team === 0) target.lastSeenTurnByPlayer = state.turn;
+      }
+    }
+
+    if (forceAll) {
+      battle.ships.filter(s => s.team === 0).forEach(s => s.lastSeenTurnByPlayer = state.turn);
+    }
+  }
+
+  function getPlayerShips() { return state.battle?.ships.filter(s => s.team === 0 && !s.destroyed) || []; }
+  function getShipById(id) { return state.battle?.ships.find(s => s.id === id) || null; }
+
+  function canPlayerSee(ship) {
+    if (ship.team === 0) return true;
+    return ship.visibleBy.has(0);
+  }
+
+  function getSelectedShip() {
+    const s = getShipById(state.selectedShipId);
+    if (s && !s.destroyed && s.team === 0) return s;
+    const fallback = getPlayerShips()[0] || null;
+    state.selectedShipId = fallback?.id || null;
+    return fallback;
+  }
+
+  function queueAction(ship, action) {
+    ship.plan.action = action;
+  }
+
+  function clearPendingAction() {
+    state.pendingAction = null;
+  }
+
+  function shipDisplayName(ship) {
+    return `${teamName(ship.team)} ${shipTypes[ship.type].name}`;
+  }
+
+  function teamName(team) {
+    return team === 0 ? 'Player' : `Bot ${team}`;
+  }
+
+  function remainingSetupPoints() {
+    return FLEET_BUDGET - state.setup.fleet.reduce((sum, k) => sum + shipTypes[k].cost, 0);
+  }
+
+  function showSetup() {
+    overlay.classList.add('show');
+    const selected = shipTypes[state.setup.selectedType];
+    modalContent.innerHTML = `
+      <h1>Naval Battle</h1>
+      <p class="muted" style="margin-top:8px;">Mobile-first prototype: pan the map, zoom in or out, plan orders ship by ship, then end the turn and watch the battle resolve simultaneously.</p>
+      <div class="banner">Defaults in this build: 20-second turns, 4 ships per fleet, 13 fleet points, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
+      <div class="grid setupGrid">
+        <div class="card">
+          <div class="sectionTitle">Choose your fleet</div>
+          <div class="small">Pick ${FLEET_SLOTS} ships. All sides get the same fleet size and point budget.</div>
+          <div class="shipGrid" id="shipGrid"></div>
+          <div class="stats">
+            <div>Cost: <strong>${selected.cost}</strong></div>
+            <div>Health: <strong>${selected.maxHealth}</strong></div>
+            <div>Speed: <strong>${selected.maxSpeed}</strong></div>
+            <div>Acceleration: <strong>${selected.acceleration}</strong></div>
+            <div>Detection: <strong>${selected.detection}</strong></div>
+            <div>Reload: <strong>${selected.reload}s</strong></div>
+            <div>Gun Damage: <strong>${selected.gunDamage}</strong></div>
+            <div>Accuracy: <strong>${Math.round(selected.gunAccuracy * 100)}%</strong></div>
+            <div>AA: <strong>${selected.aa}</strong></div>
+            <div>Weapons: <strong>${summarizeWeapons(selected)}</strong></div>
+          </div>
+          <div class="footerRow">
+            <div class="pill">Bots
+              <select id="botCountSelect">
+                <option value="1" ${state.bots === 1 ? 'selected' : ''}>1</option>
+                <option value="2" ${state.bots === 2 ? 'selected' : ''}>2</option>
+              </select>
+            </div>
+            <div class="small">Destroyers are flexible. Battleships hit hard. Carriers project force. Subs ambush. Cruisers support.</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="sectionTitle">Current fleet</div>
+          <div class="pill">Ships: ${state.setup.fleet.length}/${FLEET_SLOTS}</div>
+          <div class="pill">Points left: ${remainingSetupPoints()}</div>
+          <div class="fleetList" id="fleetList"></div>
+          <div class="legend">
+            <div>• Tap a ship type to inspect it.</div>
+            <div>• Add ships until you fill all 4 slots.</div>
+            <div>• During battle, select a ship then choose a command button.</div>
+            <div>• Tap the map to set a destination or target point.</div>
+          </div>
+          <div class="footerRow">
+            <button class="fleetBtn" id="clearFleetBtn">Clear Fleet</button>
+            <button class="startBtn" id="startBattleBtn" ${state.setup.fleet.length !== FLEET_SLOTS ? 'disabled' : ''}>Start Battle</button>
+          </div>
+          <div class="small" style="margin-top:10px;">Need to fit more on the screen? Don’t. This build expects you to pan around the map.</div>
+        </div>
+      </div>
+    `;
+
+    const shipGrid = document.getElementById('shipGrid');
+    Object.values(shipTypes).forEach(type => {
+      const affordable = remainingSetupPoints() >= type.cost || state.setup.fleet.length >= FLEET_SLOTS;
+      const btn = document.createElement('button');
+      btn.className = 'shipTypeBtn' + (type.key === state.setup.selectedType ? ' active' : '');
+      btn.innerHTML = `<strong>${type.name}</strong><br><span class="small">${type.cost} pts · ${summarizeWeapons(type)}</span>`;
+      btn.addEventListener('click', () => {
+        state.setup.selectedType = type.key;
+        showSetup();
+      });
+      btn.addEventListener('dblclick', () => addShipToFleet(type.key));
+      const addBtn = document.createElement('button');
+      addBtn.className = 'fleetBtn';
+      addBtn.textContent = 'Add';
+      addBtn.disabled = !affordable || state.setup.fleet.length >= FLEET_SLOTS || remainingSetupPoints() < type.cost;
+      addBtn.addEventListener('click', () => addShipToFleet(type.key));
+      const wrapper = document.createElement('div');
+      wrapper.className = 'fleetItem';
+      wrapper.appendChild(btn);
+      wrapper.appendChild(addBtn);
+      shipGrid.appendChild(wrapper);
+    });
+
+    document.getElementById('botCountSelect').addEventListener('change', e => {
+      state.bots = Number(e.target.value);
+      showSetup();
+    });
+
+    const fleetList = document.getElementById('fleetList');
+    if (!state.setup.fleet.length) {
+      const div = document.createElement('div');
+      div.className = 'small';
+      div.textContent = 'No ships chosen yet.';
+      fleetList.appendChild(div);
+    } else {
+      state.setup.fleet.forEach((typeKey, idx) => {
+        const item = document.createElement('div');
+        item.className = 'fleetItem';
+        item.innerHTML = `<div><strong>${idx + 1}. ${shipTypes[typeKey].name}</strong><div class="small">${summarizeWeapons(shipTypes[typeKey])}</div></div>`;
+        const rem = document.createElement('button');
+        rem.className = 'fleetBtn';
+        rem.textContent = 'Remove';
+        rem.addEventListener('click', () => {
+          state.setup.fleet.splice(idx, 1);
+          showSetup();
+        });
+        item.appendChild(rem);
+        fleetList.appendChild(item);
+      });
+    }
+
+    document.getElementById('clearFleetBtn').addEventListener('click', () => {
+      state.setup.fleet = [];
+      showSetup();
+    });
+    document.getElementById('startBattleBtn').addEventListener('click', startBattle);
+  }
+
+  function summarizeWeapons(type) {
+    const parts = [];
+    if (type.guns) parts.push('guns');
+    if (type.torpedoes) parts.push('torps');
+    if (type.mines) parts.push('mines');
+    if (type.bombers) parts.push('bombers');
+    return parts.join(', ');
+  }
+
+  function addShipToFleet(typeKey) {
+    if (state.setup.fleet.length >= FLEET_SLOTS) return;
+    const cost = shipTypes[typeKey].cost;
+    if (remainingSetupPoints() < cost) return;
+    state.setup.fleet.push(typeKey);
+    showSetup();
+  }
+
+  function startBattle() {
+    resetBattleState();
+    state.mode = 'battle';
+    state.turn = 1;
+    state.logs = [];
+    state.message = '';
+    overlay.classList.remove('show');
+    spawnTeams();
+    refreshPanels();
+  }
+
+  function showEndModal(text) {
+    overlay.classList.add('show');
+    modalContent.innerHTML = `
+      <h1>${text}</h1>
+      <p class="muted" style="margin-top:8px;">You can pan, zoom, pick a new fleet, and jump right back in.</p>
+      <div class="card" style="margin-top:14px;">
+        <div class="sectionTitle">Recent battle log</div>
+        <div class="battleLog">${state.logs.slice(0, 20).map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>
+      </div>
+      <div class="footerRow">
+        <button class="startBtn" id="playAgainBtn">Back to Fleet Setup</button>
+      </div>
+    `;
+    document.getElementById('playAgainBtn').addEventListener('click', () => {
+      state.mode = 'setup';
+      state.pendingAction = null;
+      showSetup();
+    });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function setSelectedShip(shipId) {
+    state.selectedShipId = shipId;
+    refreshPanels();
+  }
+
+  function refreshPanels() {
+    renderStatusPanel();
+    renderCommandPanel();
+  }
+
+  function renderStatusPanel() {
+    if (state.mode !== 'battle' || !state.battle) {
+      statusPanel.innerHTML = '<strong>Fleet Setup</strong><div class="small">Choose ships and start.</div>';
+      return;
+    }
+    const playerShips = getPlayerShips();
+    const enemyCounts = [];
+    for (let team = 1; team <= state.bots; team++) {
+      enemyCounts.push(`B${team}: ${state.battle.ships.filter(s => s.team === team && !s.destroyed).length}`);
+    }
+    const s = getSelectedShip();
+    statusPanel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
+        <div>
+          <strong>Turn ${state.turn}</strong>
+          <div class="small">${state.battle.turnPhase === 'planning' ? 'Planning orders' : 'Resolving turn'} · ${enemyCounts.join(' · ')}</div>
+        </div>
+        <div class="pill">Your ships ${playerShips.length}</div>
+      </div>
+      ${s ? `<div style="margin-top:8px;"><strong>${shipTypes[s.type].name}</strong><div class="small">HP ${fmt(s.hp)}/${s.maxHp} · Speed ${fmt(s.speed)} · Throttle ${s.plan.throttle.toFixed(1)}</div></div>` : '<div class="small" style="margin-top:8px;">No ship selected</div>'}
+      ${state.message ? `<div class="banner" style="margin-top:8px; padding:8px 10px; font-size:12px;">${escapeHtml(state.message)}</div>` : ''}
+    `;
+  }
+
+  function renderCommandPanel() {
+    if (state.mode !== 'battle' || !state.battle) {
+      commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Start a battle to issue orders.</div>';
+      return;
+    }
+
+    const ship = getSelectedShip();
+    if (!ship) {
+      commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">All player ships are sunk.</div>';
+      return;
+    }
+    const type = shipTypes[ship.type];
+    const action = ship.plan.action;
+    const visibleEnemies = state.battle.ships.filter(s => s.team !== 0 && !s.destroyed && canPlayerSee(s));
+    const cooldownInfo = [];
+    if (ship.cooldowns.guns > 0) cooldownInfo.push(`Guns ${ship.cooldowns.guns.toFixed(1)}s`);
+    if (ship.cooldowns.torps > 0) cooldownInfo.push(`Torps ${ship.cooldowns.torps.toFixed(1)}s`);
+    if (ship.cooldowns.bombers > 0) cooldownInfo.push(`Bombers ${ship.cooldowns.bombers.toFixed(1)}s`);
+    const canSetSubmerge = ship.type === 'submarine';
+
+    commandPanel.innerHTML = `
+      <div class="sectionTitle">Command ${shipTypes[ship.type].name}</div>
+      <div class="row">
+        <span class="pill">HP ${fmt(ship.hp)}/${ship.maxHp}</span>
+        <span class="pill">Speed ${fmt(ship.speed)}</span>
+        <span class="pill">Detect ${type.detection}</span>
+        ${cooldownInfo.length ? `<span class="pill">${cooldownInfo.join(' · ')}</span>` : ''}
+      </div>
+      <div class="row">
+        ${getPlayerShips().map(ps => `<button class="miniBtn ${ps.id === ship.id ? 'active' : ''}" data-shipjump="${ps.id}">${shipTypes[ps.type].name[0]}${ps.id.slice(-2)}</button>`).join('')}
+      </div>
+      <div class="row">
+        <div style="min-width:140px;">
+          <div class="small">Throttle: <strong id="throttleValue">${ship.plan.throttle.toFixed(1)}</strong></div>
+          <input id="throttleSlider" type="range" min="-1" max="1" step="0.1" value="${ship.plan.throttle}">
+        </div>
+        <button class="actionBtn ${state.pendingAction === 'dest' ? 'active' : ''}" data-action="dest">Set Destination</button>
+        ${type.guns ? `<button class="actionBtn ${state.pendingAction === 'guns' ? 'active' : ''}" data-action="guns">Fire Guns</button>` : ''}
+        ${type.torpedoes ? `<button class="actionBtn ${state.pendingAction === 'torps' ? 'active' : ''}" data-action="torps">Fire Torps</button>` : ''}
+        ${type.mines ? `<button class="actionBtn ${action?.kind === 'mines' ? 'active' : ''}" data-togglemines="1">${action?.kind === 'mines' ? 'Stop Mines' : 'Drop Mines'}</button>` : ''}
+        ${type.bombers ? `<button class="actionBtn ${state.pendingAction === 'bombers' ? 'active' : ''}" data-action="bombers">Send Bombers</button>` : ''}
+        ${canSetSubmerge ? `<button class="actionBtn ${ship.submerged ? 'active warn' : ''}" data-submerge="1">${ship.submerged ? 'Surface' : 'Submerge'}</button>` : ''}
+      </div>
+      <div class="row">
+        <button class="actionBtn" id="clearActionBtn">Clear Attack</button>
+        <button class="actionBtn" id="centerShipBtn">Center View</button>
+        <button class="actionBtn warn" id="toggleEnemyGhostsBtn">${visibleEnemies.length} visible ${visibleEnemies.length === 1 ? 'enemy' : 'enemies'}</button>
+        <button class="actionBtn danger" id="endTurnBtn">End Turn</button>
+      </div>
+      <div class="row small">
+        <div>${describeCurrentOrder(ship)}</div>
+      </div>
+    `;
+
+    commandPanel.querySelectorAll('[data-shipjump]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-shipjump');
+        state.selectedShipId = id;
+        const s2 = getSelectedShip();
+        if (s2) { state.view.x = s2.x; state.view.y = s2.y; }
+        refreshPanels();
+      });
+    });
+
+    const slider = document.getElementById('throttleSlider');
+    slider.addEventListener('input', e => {
+      ship.plan.throttle = Number(e.target.value);
+      document.getElementById('throttleValue').textContent = ship.plan.throttle.toFixed(1);
+      refreshPanels();
+    });
+
+    commandPanel.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const a = btn.getAttribute('data-action');
+        state.pendingAction = state.pendingAction === a ? null : a;
+        if (state.pendingAction) {
+          state.message = actionHint(a);
+        } else {
+          state.message = '';
+        }
+        refreshPanels();
+      });
+    });
+
+    const toggleMinesBtn = commandPanel.querySelector('[data-togglemines]');
+    if (toggleMinesBtn) {
+      toggleMinesBtn.addEventListener('click', () => {
+        if (ship.plan.action?.kind === 'mines') ship.plan.action = null;
+        else ship.plan.action = { kind: 'mines' };
+        clearPendingAction();
+        state.message = ship.plan.action?.kind === 'mines' ? 'This ship will lay mines while moving during the next turn.' : '';
+        refreshPanels();
+      });
+    }
+
+    const submergeBtn = commandPanel.querySelector('[data-submerge]');
+    if (submergeBtn) {
+      submergeBtn.addEventListener('click', () => {
+        ship.plan.action = { kind: 'submerge', value: !ship.submerged };
+        state.message = !ship.submerged ? 'Sub will dive during turn resolution.' : 'Sub will surface during turn resolution.';
+        refreshPanels();
+      });
+    }
+
+    document.getElementById('clearActionBtn').addEventListener('click', () => {
+      ship.plan.action = ship.plan.action?.kind === 'submerge' ? ship.plan.action : null;
+      clearPendingAction();
+      state.message = '';
+      refreshPanels();
+    });
+    document.getElementById('centerShipBtn').addEventListener('click', () => {
+      state.view.x = ship.x;
+      state.view.y = ship.y;
+    });
+    document.getElementById('toggleEnemyGhostsBtn').addEventListener('click', () => {
+      state.message = 'Visible enemies are shown bright. Recently spotted but hidden ships show as faint ghosts.';
+      refreshPanels();
+    });
+    document.getElementById('endTurnBtn').addEventListener('click', runTurn);
+  }
+
+  function describeCurrentOrder(ship) {
+    const parts = [];
+    if (ship.plan.dest) {
+      parts.push(`Heading to (${fmt(ship.plan.dest.x)}, ${fmt(ship.plan.dest.y)})`);
+    } else {
+      parts.push('Holding current heading');
+    }
+    parts.push(`Throttle ${ship.plan.throttle.toFixed(1)}`);
+    if (ship.plan.action) {
+      const a = ship.plan.action;
+      if (a.kind === 'guns') parts.push(`Guns queued at (${fmt(a.target.x)}, ${fmt(a.target.y)})`);
+      if (a.kind === 'torps') parts.push(`Torpedoes queued at (${fmt(a.target.x)}, ${fmt(a.target.y)})`);
+      if (a.kind === 'bombers') parts.push(`Bombers queued at (${fmt(a.target.x)}, ${fmt(a.target.y)})`);
+      if (a.kind === 'mines') parts.push('Will lay mines');
+      if (a.kind === 'submerge') parts.push(a.value ? 'Will submerge' : 'Will surface');
+    }
+    return parts.join(' · ');
+  }
+
+  function actionHint(a) {
+    return {
+      dest: 'Tap the map to set a destination point for this ship.',
+      guns: 'Tap the map to place an artillery target point. Lead moving enemies.',
+      torps: 'Tap the map to launch torpedoes toward that point.',
+      bombers: 'Tap the map to send a bomber strike there.'
+    }[a] || '';
+  }
+
+  function planForBots() {
+    const battle = state.battle;
+    const ships = battle.ships.filter(s => s.team !== 0 && !s.destroyed);
+    for (const ship of ships) {
+      const type = shipTypes[ship.type];
+      const enemies = battle.ships.filter(e => e.team !== ship.team && !e.destroyed);
+      const visible = enemies.filter(e => e.visibleBy.has(ship.team));
+      const closest = visible.sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0] || enemies[0] || null;
+      ship.plan.throttle = ship.type === 'battleship' ? 0.7 : 0.85;
+      ship.plan.action = null;
+
+      if (ship.type === 'carrier') ship.plan.throttle = 0.45;
+      if (ship.type === 'submarine') ship.plan.throttle = 0.8;
+
+      if (closest) {
+        const d = Math.hypot(closest.x - ship.x, closest.y - ship.y);
+        const ang = angleTo(ship, closest);
+        const desiredRange = ship.type === 'battleship' ? 390 : ship.type === 'destroyer' ? 250 : ship.type === 'carrier' ? 520 : 320;
+        let dest = { x: ship.x + Math.cos(ang) * 160, y: ship.y + Math.sin(ang) * 160 };
+
+        const coverIsland = battle.islands.find(island => Math.hypot(island.x - ship.x, island.y - ship.y) < 420 && Math.hypot(island.x - closest.x, island.y - closest.y) < 420);
+        if (coverIsland && ship.type !== 'carrier') {
+          const flank = angleTo(closest, coverIsland) + (Math.random() < 0.5 ? -1 : 1) * 1.15;
+          dest = { x: coverIsland.x + Math.cos(flank) * (coverIsland.r + 65), y: coverIsland.y + Math.sin(flank) * (coverIsland.r + 65) };
+        } else if (d < desiredRange * 0.8) {
+          dest = { x: ship.x - Math.cos(ang) * 140, y: ship.y - Math.sin(ang) * 140 };
+          ship.plan.throttle = 0.55;
+        } else if (d > desiredRange * 1.15) {
+          dest = { x: ship.x + Math.cos(ang) * 170, y: ship.y + Math.sin(ang) * 170 };
+        }
+        dest.x = clamp(dest.x, 50, MAP_W - 50);
+        dest.y = clamp(dest.y, 50, MAP_H - 50);
+        ship.plan.dest = dest;
+
+        if (ship.type === 'submarine') {
+          if (d < 320 && Math.random() < 0.7) ship.plan.action = { kind: 'submerge', value: true };
+          else if (d > 400 && ship.submerged && Math.random() < 0.4) ship.plan.action = { kind: 'submerge', value: false };
+        }
+
+        if (type.bombers && ship.cooldowns.bombers <= 0 && d <= type.bombers.range && visible.includes(closest)) {
+          ship.plan.action = { kind: 'bombers', target: predictFuturePosition(closest, 4) };
+        } else if (type.torpedoes && ship.cooldowns.torps <= 0 && d <= type.torpedoes.range && Math.random() < 0.75) {
+          ship.plan.action = { kind: 'torps', target: predictFuturePosition(closest, d / type.torpedoes.speed) };
+        } else if (type.guns && ship.cooldowns.guns <= 0 && d <= 620 && visible.includes(closest)) {
+          ship.plan.action = { kind: 'guns', target: predictFuturePosition(closest, d / type.projectileSpeed) };
+        } else if (type.mines && d < 230 && Math.random() < 0.5) {
+          ship.plan.action = { kind: 'mines' };
+        }
+      } else {
+        ship.plan.dest = { x: clamp(ship.x + rand(-120, 120), 50, MAP_W - 50), y: clamp(ship.y + rand(-120, 120), 50, MAP_H - 50) };
+      }
+    }
+  }
+
+  function predictFuturePosition(ship, seconds) {
+    const targetThrottle = ship.plan?.throttle ?? ship.throttle;
+    const ang = ship.angle;
+    const type = shipTypes[ship.type];
+    const factor = ship.type === 'submarine' && ship.submerged ? type.submergedSpeedFactor : 1;
+    const speed = Math.min(type.maxSpeed * Math.abs(targetThrottle) * factor, ship.speed + type.acceleration * Math.max(0, seconds) * 0.5);
+    return {
+      x: clamp(ship.x + Math.cos(ang) * speed * seconds, 0, MAP_W),
+      y: clamp(ship.y + Math.sin(ang) * speed * seconds, 0, MAP_H)
+    };
+  }
+
+  function runTurn() {
+    if (state.mode !== 'battle' || state.battle.turnPhase !== 'planning') return;
+    planForBots();
+    state.battle.turnPhase = 'resolving';
+    state.battle.simTime = 0;
+    state.message = 'Resolving turn...';
+    log(`Turn ${state.turn} executing.`);
+    refreshPanels();
+  }
+
+  function finishTurn() {
+    const battle = state.battle;
+    battle.turnPhase = 'planning';
+    state.turn += 1;
+    state.message = 'Orders ready.';
+    battle.ships.forEach(ship => {
+      if (ship.destroyed) return;
+      ship.throttle = ship.plan.throttle;
+      if (ship.plan.action?.kind === 'submerge') {
+        ship.submerged = !!ship.plan.action.value;
+      }
+      ship.cooldowns.guns = Math.max(0, ship.cooldowns.guns);
+      ship.cooldowns.torps = Math.max(0, ship.cooldowns.torps);
+      ship.cooldowns.bombers = Math.max(0, ship.cooldowns.bombers);
+    });
+    updateVisibility();
+    evaluateVictory();
+    refreshPanels();
+  }
+
+  function evaluateVictory() {
+    const battle = state.battle;
+    const aliveTeams = new Set(battle.ships.filter(s => !s.destroyed).map(s => s.team));
+    if (aliveTeams.size <= 1) {
+      const winner = [...aliveTeams][0];
+      battle.winner = winner;
+      if (winner === 0) {
+        log('You won the battle.');
+        showEndModal('Victory');
+      } else if (winner == null) {
+        log('All fleets destroyed.');
+        showEndModal('Draw');
+      } else {
+        log(`${teamName(winner)} wins.`);
+        showEndModal('Defeat');
+      }
+    }
+  }
+
+  function applyDamage(target, amount, sourceText) {
+    if (target.destroyed) return;
+    target.hp -= amount;
+    state.battle.explosions.push({ x: target.x, y: target.y, r: 20 + amount * 0.3, life: 0.7 });
+    if (canPlayerSee(target) || target.team === 0 || sourceText.includes('Player')) {
+      log(`${sourceText} hits ${shipDisplayName(target)} for ${fmt(amount)}.`);
+    }
+    if (target.hp <= 0) {
+      target.destroyed = true;
+      target.hp = 0;
+      state.battle.explosions.push({ x: target.x, y: target.y, r: 58, life: 1.4 });
+      log(`${shipDisplayName(target)} sinks.`);
+      if (target.id === state.selectedShipId) state.selectedShipId = getPlayerShips()[0]?.id || null;
+    }
+  }
+
+  function resolveTurnStep(dt) {
+    const battle = state.battle;
+    battle.simTime += dt;
+
+    // cooldowns
+    battle.ships.forEach(ship => {
+      if (ship.destroyed) return;
+      ship.cooldowns.guns = Math.max(0, ship.cooldowns.guns - dt);
+      ship.cooldowns.torps = Math.max(0, ship.cooldowns.torps - dt);
+      ship.cooldowns.bombers = Math.max(0, ship.cooldowns.bombers - dt);
+    });
+
+    // execute queued actions early in the turn
+    if (!battle.actionExecutedThisTurn) battle.actionExecutedThisTurn = new Set();
+    for (const ship of battle.ships) {
+      if (ship.destroyed || battle.actionExecutedThisTurn.has(ship.id)) continue;
+      if (battle.simTime < 0.8) continue;
+      const action = ship.plan.action;
+      if (!action) {
+        battle.actionExecutedThisTurn.add(ship.id);
+        continue;
+      }
+      if (action.kind === 'submerge') {
+        ship.submerged = !!action.value;
+        battle.actionExecutedThisTurn.add(ship.id);
+        log(`${shipDisplayName(ship)} ${ship.submerged ? 'dives' : 'surfaces'}.`);
+        continue;
+      }
+      if (action.kind === 'mines') {
+        battle.actionExecutedThisTurn.add(ship.id);
+        continue;
+      }
+      if (action.kind === 'guns' && ship.cooldowns.guns <= 0) {
+        fireGuns(ship, action.target);
+        ship.cooldowns.guns = shipTypes[ship.type].reload;
+        battle.actionExecutedThisTurn.add(ship.id);
+      }
+      if (action.kind === 'torps' && ship.cooldowns.torps <= 0) {
+        fireTorpedoes(ship, action.target);
+        ship.cooldowns.torps = shipTypes[ship.type].torpedoes.reload;
+        battle.actionExecutedThisTurn.add(ship.id);
+      }
+      if (action.kind === 'bombers' && ship.cooldowns.bombers <= 0) {
+        launchBombers(ship, action.target);
+        ship.cooldowns.bombers = shipTypes[ship.type].bombers.reload;
+        battle.actionExecutedThisTurn.add(ship.id);
+      }
+    }
+
+    // movement
+    for (const ship of battle.ships) {
+      if (ship.destroyed) continue;
+      updateShipMotion(ship, dt);
+      if (ship.plan.action?.kind === 'mines') maybeDropMine(ship);
+    }
+
+    // projectiles
+    updateProjectiles(dt);
+    updateTorpedoes(dt);
+    updateAircraft(dt);
+    updateMines(dt);
+    updateExplosions(dt);
+
+    battle.lastVisibilityCheck += dt;
+    if (battle.lastVisibilityCheck >= VIS_RECHECK_RATE) {
+      battle.lastVisibilityCheck = 0;
+      updateVisibility();
+    }
+
+    if (battle.simTime >= TURN_DURATION) {
+      battle.actionExecutedThisTurn.clear();
+      finishTurn();
+    }
+  }
+
+  function updateShipMotion(ship, dt) {
+    const type = shipTypes[ship.type];
+    const targetThrottle = ship.plan.throttle;
+    const speedFactor = ship.type === 'submarine' && ship.submerged ? type.submergedSpeedFactor : 1;
+    const maxSpeed = type.maxSpeed * speedFactor;
+    const targetSpeed = maxSpeed * targetThrottle;
+    const accel = type.acceleration * (targetSpeed >= ship.speed ? 1 : 1.3);
+    if (ship.speed < targetSpeed) ship.speed = Math.min(targetSpeed, ship.speed + accel * dt);
+    else ship.speed = Math.max(targetSpeed, ship.speed - accel * dt);
+
+    let desiredAngle = ship.angle;
+    if (ship.plan.dest) {
+      const toDest = Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y);
+      if (toDest > 8) desiredAngle = Math.atan2(ship.plan.dest.y - ship.y, ship.plan.dest.x - ship.x);
+    }
+    const turnRate = ship.type === 'submarine' && ship.submerged ? type.turnRateSubmerged : type.turnRate;
+    const diff = normAngle(desiredAngle - ship.angle);
+    const maxTurn = turnRate * dt;
+    ship.angle += clamp(diff, -maxTurn, maxTurn);
+
+    const old = { x: ship.x, y: ship.y };
+    ship.x += Math.cos(ship.angle) * ship.speed * dt;
+    ship.y += Math.sin(ship.angle) * ship.speed * dt;
+    ship.x = clamp(ship.x, 20, MAP_W - 20);
+    ship.y = clamp(ship.y, 20, MAP_H - 20);
+
+    for (const island of state.battle.islands) {
+      const rad = island.r + shipRadius(ship) + 4;
+      const d = Math.hypot(ship.x - island.x, ship.y - island.y);
+      if (d < rad) {
+        const ang = Math.atan2(ship.y - island.y, ship.x - island.x);
+        ship.x = island.x + Math.cos(ang) * rad;
+        ship.y = island.y + Math.sin(ang) * rad;
+        ship.speed *= 0.35;
+      }
+    }
+
+    const moveDist = Math.hypot(ship.x - old.x, ship.y - old.y);
+    if (ship.plan.dest && Math.hypot(ship.plan.dest.x - ship.x, ship.plan.dest.y - ship.y) < 18) {
+      ship.plan.dest = null;
+    }
+    ship.statusText = moveDist < 1 ? 'holding' : 'moving';
+  }
+
+  function shipRadius(ship) {
+    const type = shipTypes[ship.type];
+    return ship.type === 'submarine' && ship.submerged ? type.sizeSubmerged : type.size;
+  }
+
+  function fireGuns(ship, target) {
+    const type = shipTypes[ship.type];
+    for (let i = 0; i < type.guns.count; i++) {
+      const spread = (i - (type.guns.count - 1) / 2) * 9;
+      const ang = angleTo(ship, target) + rand(-0.05, 0.05) + spread * 0.002;
+      const distToTarget = Math.hypot(target.x - ship.x, target.y - ship.y);
+      const flight = distToTarget / type.projectileSpeed;
+      const scatter = (1 - type.gunAccuracy) * (18 + distToTarget * 0.08);
+      const landing = {
+        x: target.x + rand(-scatter, scatter),
+        y: target.y + rand(-scatter, scatter)
+      };
+      state.battle.projectiles.push({
+        team: ship.team,
+        sourceId: ship.id,
+        x: ship.x,
+        y: ship.y,
+        startX: ship.x,
+        startY: ship.y,
+        targetX: landing.x,
+        targetY: landing.y,
+        t: 0,
+        duration: Math.max(0.6, flight),
+        damage: type.gunDamage,
+        splash: type.guns.splash,
+        color: teamColors[ship.team]
+      });
+    }
+    if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} opens fire.`);
+  }
+
+  function fireTorpedoes(ship, target) {
+    const type = shipTypes[ship.type];
+    const torp = type.torpedoes;
+    const ang = angleTo(ship, target);
+    const shots = ship.type === 'destroyer' ? 3 : 2;
+    for (let i = 0; i < shots; i++) {
+      const offset = (i - (shots - 1) / 2) * torp.spread;
+      const dir = ang + offset * 0.01;
+      state.battle.torpedoes.push({
+        team: ship.team,
+        sourceId: ship.id,
+        x: ship.x,
+        y: ship.y,
+        angle: dir,
+        speed: torp.speed,
+        rangeLeft: torp.range,
+        damage: torp.damage,
+        life: torp.range / torp.speed + 0.5
+      });
+    }
+    if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} launches torpedoes.`);
+  }
+
+  function launchBombers(ship, target) {
+    const b = shipTypes[ship.type].bombers;
+    const aircraft = {
+      team: ship.team,
+      sourceId: ship.id,
+      x: ship.x,
+      y: ship.y,
+      targetX: target.x,
+      targetY: target.y,
+      speed: b.speed,
+      hp: b.health,
+      damage: b.damage,
+      bombs: b.bombs,
+      spread: b.spread,
+      stage: 'outbound'
+    };
+    state.battle.aircraft.push(aircraft);
+    if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} launches bombers.`);
+  }
+
+  function maybeDropMine(ship) {
+    const type = shipTypes[ship.type];
+    if (!type.mines) return;
+    if (Math.random() > 0.06) return;
+    const friendlyMines = state.battle.mines.filter(m => m.team === ship.team && m.sourceId === ship.id);
+    if (friendlyMines.length >= type.mines.limit) return;
+    state.battle.mines.push({ x: ship.x, y: ship.y, team: ship.team, sourceId: ship.id, damage: type.mines.damage, armed: 1.5, life: 120 });
+  }
+
+  function updateProjectiles(dt) {
+    const list = state.battle.projectiles;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      p.t += dt / p.duration;
+      p.x = lerp(p.startX, p.targetX, p.t);
+      p.y = lerp(p.startY, p.targetY, p.t);
+      if (p.t >= 1) {
+        state.battle.explosions.push({ x: p.targetX, y: p.targetY, r: p.splash, life: 0.5 });
+        for (const ship of state.battle.ships) {
+          if (ship.destroyed || ship.team === p.team) continue;
+          const d = Math.hypot(ship.x - p.targetX, ship.y - p.targetY);
+          if (d <= p.splash + shipRadius(ship)) {
+            const falloff = clamp(1 - d / (p.splash + shipRadius(ship) + 1), 0.35, 1);
+            applyDamage(ship, p.damage * falloff, `${teamName(p.team)} shellfire`);
+          }
+        }
+        list.splice(i, 1);
+      }
+    }
+  }
+
+  function updateTorpedoes(dt) {
+    const list = state.battle.torpedoes;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const t = list[i];
+      const old = { x: t.x, y: t.y };
+      t.x += Math.cos(t.angle) * t.speed * dt;
+      t.y += Math.sin(t.angle) * t.speed * dt;
+      t.rangeLeft -= t.speed * dt;
+      t.life -= dt;
+      let remove = false;
+      for (const island of state.battle.islands) {
+        if (Math.hypot(t.x - island.x, t.y - island.y) < island.r + 6) {
+          remove = true;
+          state.battle.explosions.push({ x: t.x, y: t.y, r: 18, life: 0.35 });
+          break;
+        }
+      }
+      if (!remove) {
+        for (const ship of state.battle.ships) {
+          if (ship.destroyed || ship.team === t.team) continue;
+          if (lineCircleHit(old, t, ship, shipRadius(ship) + TORPEDO_HIT_RADIUS)) {
+            applyDamage(ship, t.damage, `${teamName(t.team)} torpedoes`);
+            remove = true;
+            break;
+          }
+        }
+      }
+      if (remove || t.life <= 0 || t.rangeLeft <= 0 || t.x < 0 || t.y < 0 || t.x > MAP_W || t.y > MAP_H) list.splice(i, 1);
+    }
+  }
+
+  function updateAircraft(dt) {
+    const list = state.battle.aircraft;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const a = list[i];
+      // AA damage from enemies
+      for (const ship of state.battle.ships) {
+        if (ship.destroyed || ship.team === a.team) continue;
+        const type = shipTypes[ship.type];
+        if (!type.aa || type.aaRange <= 0) continue;
+        const d = Math.hypot(a.x - ship.x, a.y - ship.y);
+        if (d <= type.aaRange && !segmentIntersectsIsland(a, ship, state.battle.islands)) {
+          a.hp -= type.aa * dt * 0.18;
+        }
+      }
+      if (a.hp <= 0) {
+        state.battle.explosions.push({ x: a.x, y: a.y, r: 16, life: 0.4 });
+        log(`${teamName(a.team)} bombers were shot down.`);
+        list.splice(i, 1);
+        continue;
+      }
+
+      const tx = a.stage === 'outbound' ? a.targetX : getShipById(a.sourceId)?.x ?? a.x;
+      const ty = a.stage === 'outbound' ? a.targetY : getShipById(a.sourceId)?.y ?? a.y;
+      const ang = Math.atan2(ty - a.y, tx - a.x);
+      a.x += Math.cos(ang) * a.speed * dt;
+      a.y += Math.sin(ang) * a.speed * dt;
+
+      if (a.stage === 'outbound' && Math.hypot(a.x - a.targetX, a.y - a.targetY) < 26) {
+        for (let b = 0; b < a.bombs; b++) {
+          const impact = { x: a.targetX + rand(-a.spread, a.spread), y: a.targetY + rand(-a.spread, a.spread) };
+          state.battle.explosions.push({ x: impact.x, y: impact.y, r: 28, life: 0.45 });
+          for (const ship of state.battle.ships) {
+            if (ship.destroyed || ship.team === a.team) continue;
+            const d = Math.hypot(ship.x - impact.x, ship.y - impact.y);
+            if (d <= 38 + shipRadius(ship)) {
+              applyDamage(ship, a.damage * clamp(1 - d / 60, 0.4, 1), `${teamName(a.team)} bombers`);
+            }
+          }
+        }
+        a.stage = 'return';
+      }
+      if (a.stage === 'return' && Math.hypot(a.x - tx, a.y - ty) < 24) list.splice(i, 1);
+    }
+  }
+
+  function updateMines(dt) {
+    const list = state.battle.mines;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const m = list[i];
+      m.armed -= dt;
+      m.life -= dt;
+      if (m.life <= 0) { list.splice(i, 1); continue; }
+      if (m.armed > 0) continue;
+      for (const ship of state.battle.ships) {
+        if (ship.destroyed || ship.team === m.team) continue;
+        if (Math.hypot(ship.x - m.x, ship.y - m.y) <= shipRadius(ship) + MINE_TRIGGER_RADIUS) {
+          applyDamage(ship, m.damage, `${teamName(m.team)} mines`);
+          state.battle.explosions.push({ x: m.x, y: m.y, r: 30, life: 0.55 });
+          list.splice(i, 1);
+          break;
+        }
+      }
+    }
+  }
+
+  function updateExplosions(dt) {
+    const list = state.battle.explosions;
+    for (let i = list.length - 1; i >= 0; i--) {
+      list[i].life -= dt;
+      if (list[i].life <= 0) list.splice(i, 1);
+    }
+  }
+
+  function render() {
+    resizeCanvas();
+    drawBackground();
+    if (state.mode === 'battle' && state.battle) {
+      drawIslands();
+      drawFog();
+      drawMines();
+      drawPaths();
+      drawProjectiles();
+      drawShips();
+      drawAircraft();
+      drawExplosions();
+      drawMinimapHint();
+    }
+  }
+
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    g.addColorStop(0, '#10263b');
+    g.addColorStop(1, '#06121d');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const grid = 120 * state.view.zoom;
+    if (grid > 20) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = 1;
+      const startX = ((-state.view.x * state.view.zoom + canvas.width / 2) % grid + grid) % grid;
+      const startY = ((-state.view.y * state.view.zoom + canvas.height / 2) % grid + grid) % grid;
+      for (let x = startX; x < canvas.width; x += grid) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+      }
+      for (let y = startY; y < canvas.height; y += grid) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+      }
+    }
+  }
+
+  function drawIslands() {
+    for (const island of state.battle.islands) {
+      const p = worldToScreen(island.x, island.y);
+      const r = island.r * state.view.zoom;
+      if (p.x + r < -120 || p.y + r < -120 || p.x - r > canvas.width + 120 || p.y - r > canvas.height + 120) continue;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(island.rot);
+      ctx.beginPath();
+      for (let i = 0; i < 24; i++) {
+        const a = i / 24 * Math.PI * 2;
+        const mod = 0.84 + Math.sin(a * 3 + island.bump) * 0.12 + Math.cos(a * 5 + island.bump * 2) * 0.07;
+        const rr = r * mod;
+        const x = Math.cos(a) * rr;
+        const y = Math.sin(a) * rr * island.bump;
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      const grad = ctx.createRadialGradient(-r*0.2, -r*0.2, r*0.2, 0, 0, r);
+      grad.addColorStop(0, '#9a885d');
+      grad.addColorStop(1, '#635338');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.24)';
+      ctx.lineWidth = Math.max(1.2, 2 * state.view.zoom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawFog() {
+    const enemies = state.battle.ships.filter(s => s.team !== 0 && !canPlayerSee(s) && !s.destroyed && s.lastSeenTurnByPlayer > 0);
+    for (const ship of enemies) {
+      const p = worldToScreen(ship.x, ship.y);
+      const r = (shipRadius(ship) + 12) * state.view.zoom;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.setLineDash([4, 6]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function drawPaths() {
+    for (const ship of getPlayerShips()) {
+      const selected = ship.id === state.selectedShipId;
+      if (!ship.plan.dest) continue;
+      const from = worldToScreen(ship.x, ship.y);
+      const to = worldToScreen(ship.plan.dest.x, ship.plan.dest.y);
+      ctx.strokeStyle = selected ? 'rgba(118,199,255,0.95)' : 'rgba(118,199,255,0.5)';
+      ctx.lineWidth = selected ? 2.4 : 1.4;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      const markers = predictSteps(ship);
+      markers.forEach((m, idx) => {
+        const p = worldToScreen(m.x, m.y);
+        ctx.fillStyle = selected ? 'rgba(0,18,32,0.82)' : 'rgba(0,18,32,0.55)';
+        ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(118,199,255,0.55)';
+        ctx.stroke();
+        ctx.fillStyle = '#eaf7ff';
+        ctx.font = '11px system-ui';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(idx + 1), p.x, p.y + 0.5);
+      });
+
+      if (ship.plan.action?.target) {
+        const tp = worldToScreen(ship.plan.action.target.x, ship.plan.action.target.y);
+        ctx.strokeStyle = ship.plan.action.kind === 'guns' ? 'rgba(255,208,130,0.9)' : ship.plan.action.kind === 'torps' ? 'rgba(122,225,255,0.9)' : 'rgba(255,200,120,0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, 16, 0, Math.PI * 2);
+        ctx.moveTo(tp.x - 22, tp.y);
+        ctx.lineTo(tp.x + 22, tp.y);
+        ctx.moveTo(tp.x, tp.y - 22);
+        ctx.lineTo(tp.x, tp.y + 22);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function predictSteps(ship) {
+    if (!ship.plan.dest) return [];
+    const type = shipTypes[ship.type];
+    const factor = ship.type === 'submarine' && ship.submerged ? type.submergedSpeedFactor : 1;
+    const maxSpeed = type.maxSpeed * factor;
+    const desiredSpeed = maxSpeed * ship.plan.throttle;
+    const steps = [];
+    let x = ship.x, y = ship.y, speed = ship.speed, ang = ship.angle;
+    for (let turn = 1; turn <= 4; turn++) {
+      const span = 5;
+      for (let t = 0; t < span; t += TURN_DT) {
+        const desiredAngle = Math.atan2(ship.plan.dest.y - y, ship.plan.dest.x - x);
+        ang += clamp(normAngle(desiredAngle - ang), -type.turnRate * TURN_DT, type.turnRate * TURN_DT);
+        if (speed < desiredSpeed) speed = Math.min(desiredSpeed, speed + type.acceleration * TURN_DT);
+        else speed = Math.max(desiredSpeed, speed - type.acceleration * TURN_DT);
+        x += Math.cos(ang) * speed * TURN_DT;
+        y += Math.sin(ang) * speed * TURN_DT;
+      }
+      steps.push({ x, y });
+    }
+    return steps;
+  }
+
+  function drawProjectiles() {
+    for (const p of state.battle.projectiles) {
+      const sp = worldToScreen(p.x, p.y);
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, Math.max(2, 4 * state.view.zoom), 0, Math.PI * 2);
+      ctx.fillStyle = p.color;
+      ctx.fill();
+    }
+    for (const t of state.battle.torpedoes) {
+      const sp = worldToScreen(t.x, t.y);
+      const r = Math.max(3, 6 * state.view.zoom);
+      ctx.save();
+      ctx.translate(sp.x, sp.y);
+      ctx.rotate(t.angle);
+      ctx.fillStyle = 'rgba(132,235,255,0.95)';
+      ctx.fillRect(-r * 1.2, -r * 0.45, r * 2.4, r * 0.9);
+      ctx.restore();
+    }
+  }
+
+  function drawMines() {
+    for (const m of state.battle.mines) {
+      const sp = worldToScreen(m.x, m.y);
+      const r = 7 * state.view.zoom;
+      if (r < 1.5) continue;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = m.armed > 0 ? 'rgba(160,160,160,0.7)' : 'rgba(255,180,120,0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.stroke();
+    }
+  }
+
+  function drawShips() {
+    const ships = state.battle.ships.slice().sort((a, b) => shipRadius(a) - shipRadius(b));
+    for (const ship of ships) {
+      if (ship.destroyed) continue;
+      const visible = canPlayerSee(ship);
+      if (ship.team !== 0 && !visible && ship.lastSeenTurnByPlayer <= 0) continue;
+      const sp = worldToScreen(ship.x, ship.y);
+      const baseSize = shipRadius(ship) * state.view.zoom;
+      if (sp.x < -50 || sp.y < -50 || sp.x > canvas.width + 50 || sp.y > canvas.height + 50) continue;
+      ctx.save();
+      ctx.translate(sp.x, sp.y);
+      ctx.rotate(ship.angle);
+      const alpha = ship.team === 0 ? 1 : visible ? 1 : 0.24;
+      ctx.globalAlpha = alpha;
+      drawShipShape(ship, baseSize);
+      ctx.restore();
+
+      // hp bar
+      const w = Math.max(22, baseSize * 2.1);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect(sp.x - w / 2, sp.y - baseSize - 12, w, 5);
+      ctx.fillStyle = ship.team === 0 ? '#75f7b1' : '#ff8f8f';
+      ctx.fillRect(sp.x - w / 2, sp.y - baseSize - 12, w * (ship.hp / ship.maxHp), 5);
+      if (ship.id === state.selectedShipId) {
+        ctx.strokeStyle = 'rgba(118,199,255,0.95)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, baseSize + 10, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (ship.type === 'submarine' && ship.submerged) {
+        ctx.strokeStyle = 'rgba(135,205,230,0.5)';
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, baseSize + 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  function drawShipShape(ship, size) {
+    const type = shipTypes[ship.type];
+    const color = ship.team === 0 ? type.color : teamColors[ship.team];
+    const hull = ship.type === 'carrier' ? size * 1.9 : ship.type === 'battleship' ? size * 1.75 : size * 1.55;
+    const beam = ship.type === 'battleship' ? size * 0.72 : size * 0.58;
+    ctx.beginPath();
+    ctx.moveTo(hull, 0);
+    ctx.lineTo(size * 0.4, beam);
+    ctx.lineTo(-hull * 0.75, beam * 0.9);
+    ctx.lineTo(-hull, 0);
+    ctx.lineTo(-hull * 0.75, -beam * 0.9);
+    ctx.lineTo(size * 0.4, -beam);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = Math.max(1, size * 0.08);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.24)';
+    ctx.fillRect(-size * 0.3, -beam * 0.3, size * 0.8, beam * 0.6);
+    if (type.guns && ship.type !== 'carrier' && !(ship.type === 'submarine' && ship.submerged)) {
+      ctx.fillStyle = 'rgba(20,30,40,0.65)';
+      const turrets = Math.max(1, type.guns.count);
+      for (let i = 0; i < turrets; i++) {
+        const x = lerp(-size * 0.1, hull * 0.62, turrets === 1 ? 1 : i / (turrets - 1));
+        ctx.fillRect(x - size * 0.14, -size * 0.12, size * 0.28, size * 0.24);
+      }
+    }
+    if (ship.type === 'carrier') {
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      ctx.moveTo(-hull * 0.8, 0);
+      ctx.lineTo(hull * 0.9, 0);
+      ctx.stroke();
+    }
+  }
+
+  function drawAircraft() {
+    for (const a of state.battle.aircraft) {
+      const sp = worldToScreen(a.x, a.y);
+      ctx.save();
+      ctx.translate(sp.x, sp.y);
+      ctx.fillStyle = a.team === 0 ? '#fff0b7' : '#ffc2b7';
+      ctx.beginPath();
+      ctx.moveTo(0, -5);
+      ctx.lineTo(10, 0);
+      ctx.lineTo(0, 5);
+      ctx.lineTo(2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function drawExplosions() {
+    for (const ex of state.battle.explosions) {
+      const sp = worldToScreen(ex.x, ex.y);
+      const alpha = clamp(ex.life, 0, 1);
+      const r = ex.r * state.view.zoom * (1 + (1 - alpha) * 0.3);
+      const grad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, r);
+      grad.addColorStop(0, `rgba(255,245,190,${0.85 * alpha})`);
+      grad.addColorStop(0.5, `rgba(255,180,80,${0.55 * alpha})`);
+      grad.addColorStop(1, `rgba(255,80,20,0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawMinimapHint() {
+    ctx.save();
+    const x = canvas.width - 122;
+    const y = canvas.height - 162;
+    const w = 110;
+    const h = 80;
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.strokeRect(x, y, w, h);
+    for (const island of state.battle.islands) {
+      ctx.fillStyle = 'rgba(170,150,100,0.65)';
+      ctx.beginPath();
+      ctx.arc(x + island.x / MAP_W * w, y + island.y / MAP_H * h, Math.max(2, island.r / MAP_W * w), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    for (const ship of state.battle.ships) {
+      if (ship.destroyed) continue;
+      if (ship.team !== 0 && !canPlayerSee(ship)) continue;
+      ctx.fillStyle = teamColors[ship.team];
+      ctx.beginPath();
+      ctx.arc(x + ship.x / MAP_W * w, y + ship.y / MAP_H * h, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const vw = canvas.width / state.view.zoom / MAP_W * w;
+    const vh = canvas.height / state.view.zoom / MAP_H * h;
+    const vx = x + ((state.view.x - canvas.width / 2 / state.view.zoom) / MAP_W) * w;
+    const vy = y + ((state.view.y - canvas.height / 2 / state.view.zoom) / MAP_H) * h;
+    ctx.strokeStyle = 'rgba(118,199,255,0.9)';
+    ctx.strokeRect(vx, vy, vw, vh);
+    ctx.restore();
+  }
+
+  function handleMapTap(world) {
+    if (state.mode !== 'battle' || state.battle.turnPhase !== 'planning') return;
+    const selectedShip = getSelectedShip();
+    if (!selectedShip) return;
+
+    const tappedShip = findShipNear(world.x, world.y, 28 / state.view.zoom);
+    if (tappedShip && tappedShip.team === 0) {
+      setSelectedShip(tappedShip.id);
+      clearPendingAction();
+      state.message = '';
+      return;
+    }
+
+    if (state.pendingAction === 'dest') {
+      selectedShip.plan.dest = { x: clamp(world.x, 0, MAP_W), y: clamp(world.y, 0, MAP_H) };
+      clearPendingAction();
+      state.message = 'Destination set.';
+      refreshPanels();
+      return;
+    }
+
+    if (state.pendingAction === 'guns') {
+      selectedShip.plan.action = { kind: 'guns', target: { x: world.x, y: world.y } };
+      clearPendingAction();
+      state.message = 'Gun target set.';
+      refreshPanels();
+      return;
+    }
+
+    if (state.pendingAction === 'torps') {
+      selectedShip.plan.action = { kind: 'torps', target: { x: world.x, y: world.y } };
+      clearPendingAction();
+      state.message = 'Torpedo target set.';
+      refreshPanels();
+      return;
+    }
+
+    if (state.pendingAction === 'bombers') {
+      selectedShip.plan.action = { kind: 'bombers', target: { x: world.x, y: world.y } };
+      clearPendingAction();
+      state.message = 'Bomber strike target set.';
+      refreshPanels();
+      return;
+    }
+
+    if (tappedShip && tappedShip.team !== 0 && canPlayerSee(tappedShip)) {
+      state.message = `${shipDisplayName(tappedShip)} selected as a visual reference. Lead your shot if it’s moving.`;
+      refreshPanels();
+    }
+  }
+
+  function findShipNear(x, y, bonus = 0) {
+    let best = null;
+    let bestD = Infinity;
+    for (const ship of state.battle.ships) {
+      if (ship.destroyed) continue;
+      if (ship.team !== 0 && !canPlayerSee(ship)) continue;
+      const d = Math.hypot(ship.x - x, ship.y - y);
+      const hit = shipRadius(ship) + bonus;
+      if (d <= hit && d < bestD) { best = ship; bestD = d; }
+    }
+    return best;
+  }
+
+  function resizeCanvas() {
+    const w = Math.floor(window.innerWidth);
+    const h = Math.floor(window.innerHeight);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+      clampView();
+    }
+  }
+
+  function attachInput() {
+    let pinchStart = null;
+
+    canvas.addEventListener('pointerdown', e => {
+      if (overlay.classList.contains('show')) return;
+      state.pointer.down = true;
+      state.pointer.dragging = false;
+      state.pointer.startX = state.pointer.lastX = e.clientX;
+      state.pointer.startY = state.pointer.lastY = e.clientY;
+      canvas.setPointerCapture?.(e.pointerId);
+    });
+
+    canvas.addEventListener('pointermove', e => {
+      if (!state.pointer.down) return;
+      const dx = e.clientX - state.pointer.lastX;
+      const dy = e.clientY - state.pointer.lastY;
+      const total = Math.hypot(e.clientX - state.pointer.startX, e.clientY - state.pointer.startY);
+      state.pointer.lastX = e.clientX;
+      state.pointer.lastY = e.clientY;
+      if (total > 6) state.pointer.dragging = true;
+      if (state.pointer.dragging) {
+        state.view.x -= dx / state.view.zoom;
+        state.view.y -= dy / state.view.zoom;
+        clampView();
+      }
+    });
+
+    canvas.addEventListener('pointerup', e => {
+      if (!state.pointer.down) return;
+      const wasDragging = state.pointer.dragging;
+      state.pointer.down = false;
+      state.pointer.dragging = false;
+      if (!wasDragging) {
+        handleMapTap(screenToWorld(e.clientX, e.clientY));
+      }
+    });
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.12 : 0.89;
+      zoomAt(e.clientX, e.clientY, factor);
+    }, { passive: false });
+
+    canvas.addEventListener('touchstart', e => {
+      if (e.touches.length === 2) {
+        pinchStart = pinchDistance(e.touches[0], e.touches[1]);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      if (e.touches.length === 2 && pinchStart) {
+        const newDist = pinchDistance(e.touches[0], e.touches[1]);
+        const factor = newDist / pinchStart;
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        zoomAt(midX, midY, factor);
+        pinchStart = newDist;
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', () => { pinchStart = null; });
+
+    zoomInBtn.addEventListener('click', () => zoomAt(canvas.width / 2, canvas.height / 2, 1.18));
+    zoomOutBtn.addEventListener('click', () => zoomAt(canvas.width / 2, canvas.height / 2, 0.85));
+    centerViewBtn.addEventListener('click', () => {
+      const ship = getSelectedShip();
+      if (ship) { state.view.x = ship.x; state.view.y = ship.y; }
+      else centerOnPlayerFleet();
+      clampView();
+    });
+  }
+
+  function pinchDistance(a, b) {
+    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  }
+
+  function zoomAt(screenX, screenY, factor) {
+    const before = screenToWorld(screenX, screenY);
+    state.view.zoom = clamp(state.view.zoom * factor, 0.25, 1.65);
+    const after = screenToWorld(screenX, screenY);
+    state.view.x += before.x - after.x;
+    state.view.y += before.y - after.y;
+    clampView();
+  }
+
+  function clampView() {
+    const halfW = canvas.width / 2 / state.view.zoom;
+    const halfH = canvas.height / 2 / state.view.zoom;
+    state.view.x = clamp(state.view.x, halfW, MAP_W - halfW);
+    state.view.y = clamp(state.view.y, halfH, MAP_H - halfH);
+  }
+
+  function gameLoop() {
+    if (state.mode === 'battle' && state.battle?.turnPhase === 'resolving' && !state.battle.winner) {
+      resolveTurnStep(1 / 60 * 2.25);
+    }
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  function init() {
+    attachInput();
+    showSetup();
+    refreshPanels();
+    requestAnimationFrame(gameLoop);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
