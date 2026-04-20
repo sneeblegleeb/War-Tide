@@ -360,6 +360,8 @@
   const centerViewBtn = document.getElementById('centerView');
 
   const DOCK_HEIGHT = 176;
+  const SAVE_KEY = 'navalBattleSave_v1';
+  let lastAutoSaveAt = 0;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
   const FLEET_SLOTS = 4;
@@ -457,6 +459,68 @@
   function log(msg) {
     state.logs.unshift(msg);
     if (state.logs.length > 60) state.logs.length = 60;
+  }
+
+  function serializeBattle(battle) {
+    if (!battle) return null;
+    return {
+      ...battle,
+      ships: battle.ships.map(ship => ({ ...ship, visibleBy: [...(ship.visibleBy || [])] })),
+      actionExecutedThisTurn: [...(battle.actionExecutedThisTurn || [])]
+    };
+  }
+
+  function hydrateBattle(battle) {
+    if (!battle) return null;
+    battle.ships = (battle.ships || []).map(ship => {
+      ship.visibleBy = new Set(ship.visibleBy || [ship.team]);
+      if (!ship.plan) ship.plan = { dest: null, course: [], courseMode: 'stop', throttle: ship.throttle ?? 0.5, action: null };
+      if (!ship.plan.course) ship.plan.course = [];
+      if (!ship.plan.courseMode) ship.plan.courseMode = 'stop';
+      return ship;
+    });
+    battle.actionExecutedThisTurn = new Set(battle.actionExecutedThisTurn || []);
+    return battle;
+  }
+
+  function saveGameState() {
+    try {
+      const payload = {
+        mode: state.mode,
+        view: state.view,
+        turn: state.turn,
+        bots: state.bots,
+        setup: state.setup,
+        selectedShipId: state.selectedShipId,
+        pendingAction: state.pendingAction,
+        message: state.message,
+        logs: state.logs,
+        battle: serializeBattle(state.battle)
+      };
+      localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+    } catch (err) {}
+  }
+
+  function loadGameState() {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return false;
+      const payload = JSON.parse(raw);
+      if (!payload || typeof payload !== 'object') return false;
+      state.mode = payload.mode || 'setup';
+      state.view = payload.view || state.view;
+      state.turn = payload.turn || 1;
+      state.bots = payload.bots || 2;
+      state.setup = payload.setup || state.setup;
+      state.selectedShipId = payload.selectedShipId || null;
+      state.pendingAction = payload.pendingAction || null;
+      state.message = payload.message || '';
+      state.logs = payload.logs || [];
+      state.battle = hydrateBattle(payload.battle);
+      return true;
+    } catch (err) {
+      return false;
+    }
   }
 
   function rand(min, max) { return Math.random() * (max - min) + min; }
@@ -667,8 +731,10 @@
           detect *= 0.52;
         }
         if (target.type !== 'submarine' && target.speed < 14) detect *= 0.94;
+        const blocked = segmentIntersectsIsland(observer, target, battle.islands);
+        if (blocked) continue;
+        detect *= 1.4;
         if (Math.hypot(observer.x - target.x, observer.y - target.y) > detect) continue;
-        if (segmentIntersectsIsland(observer, target, battle.islands)) continue;
         target.visibleBy.add(observer.team);
         if (observer.team === 0) target.lastSeenTurnByPlayer = state.turn;
       }
@@ -761,7 +827,8 @@
   function addCoursePoint(ship, point) {
     ensureCoursePlan(ship);
     const start = ship.plan.course.length ? ship.plan.course[ship.plan.course.length - 1] : { x: ship.x, y: ship.y };
-    const routedPoints = routeSegmentAroundIslands(ship, start, clampCoursePoint(point));
+    const safePoint = snapCoursePointToSafeWater(ship, point, start);
+    const routedPoints = routeSegmentAroundIslands(ship, start, safePoint);
     ship.plan.course.push(...dedupeCoursePoints(routedPoints));
     ship.plan.course = dedupeCoursePoints(ship.plan.course);
     syncPlanDest(ship);
@@ -778,6 +845,25 @@
       x: clamp(point.x, 24, MAP_W - 24),
       y: clamp(point.y, 24, MAP_H - 24)
     };
+  }
+
+  function snapCoursePointToSafeWater(ship, point, anchor = null) {
+    let p = clampCoursePoint(point);
+    if (!state.battle) return p;
+    const clearance = shipRadius(ship) + 30;
+    for (const island of state.battle.islands) {
+      const minR = island.r + clearance;
+      const d = Math.hypot(p.x - island.x, p.y - island.y);
+      if (d < minR) {
+        const fallbackAngle = anchor ? Math.atan2(p.y - anchor.y, p.x - anchor.x) : 0;
+        const ang = d > 0.001 ? Math.atan2(p.y - island.y, p.x - island.x) : fallbackAngle;
+        p = clampCoursePoint({
+          x: island.x + Math.cos(ang) * minR,
+          y: island.y + Math.sin(ang) * minR
+        });
+      }
+    }
+    return p;
   }
 
   function pointInIsland(point, island, pad = 0) {
@@ -823,7 +909,7 @@
 
   function findBlockingIsland(ship, start, end) {
     if (!state.battle) return null;
-    const clearance = shipRadius(ship) + 34;
+    const clearance = shipRadius(ship) + 20;
     let best = null;
     let bestAlong = Infinity;
     const dx = end.x - start.x;
@@ -841,12 +927,12 @@
   }
 
   function routeSegmentAroundIslands(ship, start, end, depth = 0) {
-    end = clampCoursePoint(end);
+    end = snapCoursePointToSafeWater(ship, end, start);
     if (!state.battle || depth > 3) return [end];
     const island = findBlockingIsland(ship, start, end);
     if (!island) return [end];
 
-    const clearance = island.r + shipRadius(ship) + 58;
+    const clearance = island.r + shipRadius(ship) + 40;
     const startA = Math.atan2(start.y - island.y, start.x - island.x);
     const endA = Math.atan2(end.y - island.y, end.x - island.x);
     const candidates = [];
@@ -1079,6 +1165,7 @@
   function refreshPanels() {
     renderStatusPanel();
     renderCommandPanel();
+    saveGameState();
   }
 
   function renderStatusPanel() {
@@ -2346,14 +2433,26 @@
     if (state.mode === 'battle' && state.battle && state.battle.turnPhase === 'resolving' && !state.battle.winner) {
       resolveTurnStep(1 / 60 * RESOLVE_TIME_SCALE);
     }
+    const now = performance.now();
+    if (now - lastAutoSaveAt > 500) {
+      saveGameState();
+      lastAutoSaveAt = now;
+    }
     render();
     requestAnimationFrame(gameLoop);
   }
 
   function init() {
     attachInput();
-    showSetup();
+    const restored = loadGameState();
+    if (!restored || state.mode !== 'battle' || !state.battle) {
+      showSetup();
+    } else {
+      overlay.classList.remove('show');
+    }
     refreshPanels();
+    window.addEventListener('beforeunload', saveGameState);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) saveGameState(); });
     requestAnimationFrame(gameLoop);
   }
 
