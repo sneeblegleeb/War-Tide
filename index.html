@@ -488,10 +488,13 @@
     if (!battle) return null;
     battle.ships = (battle.ships || []).map(ship => {
       ship.visibleBy = new Set(ship.visibleBy || [ship.team]);
-      if (!ship.plan) ship.plan = { dest: null, course: [], courseMode: 'stop', throttle: ship.throttle ?? 0.5, action: null, weaponTargets: { guns: null, torps: null, bombers: null } };
+      if (!ship.plan) ship.plan = { dest: null, course: [], courseMode: 'stop', throttle: ship.throttle ?? 0.5, action: null, bomberMode: 'strike', weaponTargets: { guns: null, torps: null, bombers: null } };
       if (!ship.plan.course) ship.plan.course = [];
       if (!ship.plan.courseMode) ship.plan.courseMode = 'stop';
+      if (!ship.plan.bomberMode) ship.plan.bomberMode = 'strike';
       if (!ship.plan.weaponTargets) ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
+      if (ship.planesTotal == null) ship.planesTotal = ship.type === 'carrier' ? 3 : 0;
+      if (ship.planesAvailable == null) ship.planesAvailable = ship.planesTotal;
       return ship;
     });
     battle.actionExecutedThisTurn = new Set(battle.actionExecutedThisTurn || []);
@@ -611,7 +614,9 @@
       cooldowns: { guns: 0, torps: 0, bombers: 0 },
       submerged: false,
       statusText: '',
-      plan: { dest: null, course: [], courseMode: 'stop', throttle: 0.5, action: null, weaponTargets: { guns: null, torps: null, bombers: null } },
+      planesTotal: s.bombers ? 3 : 0,
+      planesAvailable: s.bombers ? 3 : 0,
+      plan: { dest: null, course: [], courseMode: 'stop', throttle: 0.5, action: null, bomberMode: 'strike', weaponTargets: { guns: null, torps: null, bombers: null } },
       visibleBy: new Set([team]),
       destroyed: false,
       mineDropping: false,
@@ -840,7 +845,7 @@
     const t = getActionTime(kind);
     if (kind === 'guns') return ship.cooldowns.guns <= t && !(ship.type === 'submarine' && ship.submerged);
     if (kind === 'torps') return ship.cooldowns.torps <= t;
-    if (kind === 'bombers') return ship.cooldowns.bombers <= t;
+    if (kind === 'bombers') return ship.cooldowns.bombers <= t && (ship.planesAvailable || 0) > 0;
     return true;
   }
 
@@ -856,13 +861,14 @@
     if (kind === 'dest') return 'Tap the map to add course points for the selected ship. Tap Finish Plot when you are done.';
     if (kind === 'guns') return `Tap the map to set a gun target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'guns'))}.`;
     if (kind === 'torps') return `Tap the map to set a torpedo target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'torps'))}.`;
-    if (kind === 'bombers') return `Tap the map to send bombers to a strike point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.`;
+    if (kind === 'bombers') return `Tap the map to set a bomber target. Mode: ${(getSelectedShip()?.plan?.bomberMode === 'patrol') ? 'Patrol' : 'Strike'} · Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.`;
     return 'Tap the map to place the order.';
   }
 
   function ensureCoursePlan(ship) {
     if (!ship.plan.course) ship.plan.course = [];
     if (!ship.plan.courseMode) ship.plan.courseMode = 'stop';
+    if (!ship.plan.bomberMode) ship.plan.bomberMode = 'strike';
     if (!ship.plan.weaponTargets) ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
     if (ship.plan.dest && ship.plan.course.length === 0) ship.plan.course.push(ship.plan.dest);
     syncPlanDest(ship);
@@ -878,7 +884,7 @@
     ensureCoursePlan(ship);
     const start = ship.plan.course.length ? ship.plan.course[ship.plan.course.length - 1] : { x: ship.x, y: ship.y };
     const safePoint = snapCoursePointToSafeWater(ship, point, start);
-    const routedPoints = routeSegmentAroundIslands(ship, start, safePoint).slice(0, 3);
+    const routedPoints = routeSegmentAroundIslands(ship, start, safePoint).slice(0, 5);
     ship.plan.course.push(...dedupeCoursePoints(routedPoints));
     ship.plan.course = dedupeCoursePoints(ship.plan.course);
     syncPlanDest(ship);
@@ -965,6 +971,47 @@
     return out;
   }
 
+  function countBlockingIslands(ship, start, end, ignore = null) {
+    if (!state.battle) return 0;
+    const clearance = shipRadius(ship) + 10;
+    let count = 0;
+    for (const island of state.battle.islands) {
+      if (island === ignore) continue;
+      if (lineCircleHit(start, end, island, island.r + clearance)) count++;
+    }
+    return count;
+  }
+
+  function chooseIslandDetour(ship, start, end, island) {
+    const clearance = island.r + shipRadius(ship) + 28;
+    const startA = Math.atan2(start.y - island.y, start.x - island.x);
+    const endA = Math.atan2(end.y - island.y, end.x - island.x);
+    const candidates = [];
+
+    for (const side of [1, -1]) {
+      const p1 = nudgePointOutOfIslands({
+        x: island.x + Math.cos(startA + side * 0.72) * clearance,
+        y: island.y + Math.sin(startA + side * 0.72) * clearance
+      }, shipRadius(ship) + 16);
+
+      const p2 = nudgePointOutOfIslands({
+        x: island.x + Math.cos(endA - side * 0.72) * clearance,
+        y: island.y + Math.sin(endA - side * 0.72) * clearance
+      }, shipRadius(ship) + 16);
+
+      const score =
+        polylineLength(start, [p1, p2, end]) +
+        countBlockingIslands(ship, start, p1, island) * 180 +
+        countBlockingIslands(ship, p1, p2, island) * 220 +
+        countBlockingIslands(ship, p2, end, island) * 260;
+
+      candidates.push({ p1, p2, score });
+    }
+
+    candidates.sort((a, b) => a.score - b.score);
+    return candidates[0];
+  }
+
   function findBlockingIsland(ship, start, end) {
     if (!state.battle) return null;
     const clearance = shipRadius(ship) + 10;
@@ -987,26 +1034,25 @@
   function routeSegmentAroundIslands(ship, start, end, depth = 0) {
     end = snapCoursePointToSafeWater(ship, end, start);
     if (!state.battle) return [end];
-    const island = findBlockingIsland(ship, start, end);
-    if (!island) return [end];
 
-    const clearance = island.r + shipRadius(ship) + 28;
-    const startA = Math.atan2(start.y - island.y, start.x - island.x);
-    const endA = Math.atan2(end.y - island.y, end.x - island.x);
-    const delta = normAngle(endA - startA);
-    const side = delta >= 0 ? 1 : -1;
+    const points = [];
+    let current = start;
+    const seen = new Set();
 
-    const p1 = nudgePointOutOfIslands({
-      x: island.x + Math.cos(startA + side * 0.72) * clearance,
-      y: island.y + Math.sin(startA + side * 0.72) * clearance
-    }, shipRadius(ship) + 16);
+    for (let step = 0; step < 3; step++) {
+      const island = findBlockingIsland(ship, current, end);
+      if (!island || seen.has(island)) break;
+      seen.add(island);
 
-    const p2 = nudgePointOutOfIslands({
-      x: island.x + Math.cos(endA - side * 0.72) * clearance,
-      y: island.y + Math.sin(endA - side * 0.72) * clearance
-    }, shipRadius(ship) + 16);
+      const detour = chooseIslandDetour(ship, current, end, island);
+      if (!detour) break;
 
-    return dedupeCoursePoints([p1, p2, end]).slice(0, 3);
+      points.push(detour.p1, detour.p2);
+      current = detour.p2;
+    }
+
+    points.push(end);
+    return dedupeCoursePoints(points).slice(0, 5);
   }
 
   function describeCurrentOrder(ship) {
@@ -1022,7 +1068,7 @@
     const queued = [];
     if (ship.plan.weaponTargets?.guns) queued.push('guns queued');
     if (ship.plan.weaponTargets?.torps) queued.push('torps queued');
-    if (ship.plan.weaponTargets?.bombers) queued.push('bombers queued');
+    if (ship.plan.weaponTargets?.bombers) queued.push(`${ship.plan.bomberMode === 'patrol' ? 'patrol' : 'strike'} bombers queued`);
     if (ship.plan.action?.kind === 'mines') queued.push('dropping mines');
     if (ship.plan.action?.kind === 'submerge') queued.push(ship.plan.action.value ? 'will dive' : 'will surface');
     parts.push(queued.length ? queued.join(', ') : 'No action queued');
@@ -1265,6 +1311,7 @@
       html += '<span class="pill" id="speedPill">Speed ' + fmt(ship.speed) + '</span>';
       html += '<span class="pill" id="throttlePill">Throttle ' + ship.plan.throttle.toFixed(1) + '</span>';
       html += '<span class="pill">Detect ' + type.detection + '</span>';
+      if (ship.type === 'carrier') html += '<span class="pill">Planes ' + ship.planesAvailable + '/' + ship.planesTotal + '</span>';
       html += '</div>';
 
       html += '<div class="shipJumpGrid">';
@@ -1286,6 +1333,7 @@
       html += '<button class="actionBtn" id="finishPlotBtn" ' + (state.pendingAction === 'dest' ? '' : 'disabled') + '>Finish Plot</button>';
       html += '<button class="actionBtn" id="courseModeBtn">' + (ship.plan.courseMode === 'stop' ? 'End: Stop' : 'End: Keep Heading') + '</button>';
       html += '<button class="actionBtn" id="clearCourseBtn" ' + (ship.plan.course && ship.plan.course.length ? '' : 'disabled') + '>Clear Course</button>';
+      if (ship.type === 'carrier') html += '<button class="actionBtn" id="bomberModeBtn">' + (ship.plan.bomberMode === 'patrol' ? 'Bombers: Patrol' : 'Bombers: Strike') + '</button>';
       html += '</div>';
 
       html += '<div class="hintBox">' + escapeHtml(state.pendingAction ? actionHint(state.pendingAction) : 'Tap a command, then tap the map. Drag empty water to pan. Use pinch or +/- to zoom.') + '</div>';
@@ -1351,6 +1399,13 @@
         clearCourse(ship);
         if (state.pendingAction === 'dest') clearPendingAction();
         state.message = 'Course cleared.';
+        refreshPanels();
+      };
+
+      const bomberModeBtn = document.getElementById('bomberModeBtn');
+      if (bomberModeBtn) bomberModeBtn.onclick = () => {
+        ship.plan.bomberMode = ship.plan.bomberMode === 'strike' ? 'patrol' : 'strike';
+        state.message = ship.plan.bomberMode === 'patrol' ? 'Bombers will patrol an area for a while and bomb ships below.' : 'Bombers will make a side-by-side strike run.';
         refreshPanels();
       };
 
@@ -1467,7 +1522,7 @@
         }
         dest.x = clamp(dest.x, 50, MAP_W - 50);
         dest.y = clamp(dest.y, 50, MAP_H - 50);
-        ship.plan.course = [dest];
+        ship.plan.course = routeSegmentAroundIslands(ship, { x: ship.x, y: ship.y }, dest).slice(0, 5);
         syncPlanDest(ship);
 
         if (ship.type === 'submarine') {
@@ -1476,7 +1531,7 @@
         }
 
         if (type.bombers && ship.cooldowns.bombers <= 0 && d <= type.bombers.range && visible.includes(closest)) {
-          ship.plan.weaponTargets.bombers = predictFuturePosition(closest, 4);
+          ship.plan.weaponTargets.bombers = { ...predictFuturePosition(closest, 4), mode: 'strike' };
         } else if (type.torpedoes && ship.cooldowns.torps <= 0 && d <= type.torpedoes.range && Math.random() < 0.75) {
           ship.plan.weaponTargets.torps = predictFuturePosition(closest, d / type.torpedoes.speed);
         } else if (type.guns && ship.cooldowns.guns <= 0 && d <= 620 && visible.includes(closest)) {
@@ -1485,7 +1540,7 @@
           ship.plan.action = { kind: 'mines' };
         }
       } else {
-        ship.plan.course = [{ x: clamp(ship.x + rand(-120, 120), 50, MAP_W - 50), y: clamp(ship.y + rand(-120, 120), 50, MAP_H - 50) }];
+        ship.plan.course = routeSegmentAroundIslands(ship, { x: ship.x, y: ship.y }, { x: clamp(ship.x + rand(-120, 120), 50, MAP_W - 50), y: clamp(ship.y + rand(-120, 120), 50, MAP_H - 50) }).slice(0, 5);
         syncPlanDest(ship);
       }
     }
@@ -1769,23 +1824,43 @@
 
   function launchBombers(ship, target) {
     const b = shipTypes[ship.type].bombers;
-    const aircraft = {
-      team: ship.team,
-      sourceId: ship.id,
-      x: ship.x,
-      y: ship.y,
-      targetX: target.x,
-      targetY: target.y,
-      speed: b.speed,
-      hp: b.health,
-      damage: b.damage,
-      bombs: b.bombs,
-      spread: b.spread,
-      stage: 'outbound'
-    };
-    state.battle.aircraft.push(aircraft);
-    addPing(ship.x, ship.y, 'Aircraft Away', 'rgba(255,220,150,0.95)');
-    if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} launches bombers.`);
+    const mode = target.mode || ship.plan.bomberMode || 'strike';
+    const count = Math.min(3, ship.planesAvailable || 0);
+    if (count <= 0) {
+      if (ship.team === 0) log(`${shipDisplayName(ship)} has no ready aircraft.`);
+      return;
+    }
+
+    ship.planesAvailable -= count;
+
+    for (let i = 0; i < count; i++) {
+      const lateral = (i - (count - 1) / 2) * 44;
+      const aircraft = {
+        team: ship.team,
+        sourceId: ship.id,
+        x: ship.x,
+        y: ship.y,
+        targetX: target.x,
+        targetY: target.y,
+        speed: b.speed,
+        hp: b.health,
+        damage: b.damage,
+        bombs: b.bombs,
+        spread: b.spread,
+        stage: 'outbound',
+        mode,
+        planeIndex: i,
+        planeCount: count,
+        lateralOffset: lateral,
+        bombCooldown: 0,
+        patrolTime: TURN_DURATION * 2.3,
+        orbitAngle: (i / Math.max(1, count)) * Math.PI * 2,
+        hasDroppedStrike: false
+      };
+      state.battle.aircraft.push(aircraft);
+    }
+    addPing(ship.x, ship.y, mode === 'patrol' ? 'Patrol Launched' : 'Strike Launched', 'rgba(255,220,150,0.95)');
+    if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} launches ${count} bomber${count === 1 ? '' : 's'} (${mode}).`);
   }
 
   function maybeDropMine(ship) {
@@ -1856,9 +1931,21 @@
 
   function updateAircraft(dt) {
     const list = state.battle.aircraft;
+
+    const dropBombAt = (a, impact) => {
+      state.battle.explosions.push({ x: impact.x, y: impact.y, r: 28, life: 0.45 });
+      for (const ship of state.battle.ships) {
+        if (ship.destroyed || ship.team === a.team) continue;
+        const d = Math.hypot(ship.x - impact.x, ship.y - impact.y);
+        if (d <= 38 + shipRadius(ship)) {
+          applyDamage(ship, a.damage * clamp(1 - d / 60, 0.4, 1), `${teamName(a.team)} bombers`);
+        }
+      }
+    };
+
     for (let i = list.length - 1; i >= 0; i--) {
       const a = list[i];
-      // AA damage from enemies
+
       for (const ship of state.battle.ships) {
         if (ship.destroyed || ship.team === a.team) continue;
         const type = shipTypes[ship.type];
@@ -1868,34 +1955,72 @@
           a.hp -= type.aa * dt * 0.18;
         }
       }
+
       if (a.hp <= 0) {
         state.battle.explosions.push({ x: a.x, y: a.y, r: 16, life: 0.4 });
-        log(`${teamName(a.team)} bombers were shot down.`);
+        log(`${teamName(a.team)} bomber was shot down.`);
         list.splice(i, 1);
         continue;
       }
 
-      const tx = a.stage === 'outbound' ? a.targetX : getShipById(a.sourceId)?.x ?? a.x;
-      const ty = a.stage === 'outbound' ? a.targetY : getShipById(a.sourceId)?.y ?? a.y;
-      const ang = Math.atan2(ty - a.y, tx - a.x);
-      a.x += Math.cos(ang) * a.speed * dt;
-      a.y += Math.sin(ang) * a.speed * dt;
+      if (a.mode === 'patrol' && a.stage === 'patrol') {
+        a.orbitAngle += dt * 1.35;
+        const orbitR = 90;
+        a.x = a.targetX + Math.cos(a.orbitAngle) * orbitR;
+        a.y = a.targetY + Math.sin(a.orbitAngle) * orbitR;
+        a.patrolTime -= dt;
+        a.bombCooldown -= dt;
 
-      if (a.stage === 'outbound' && Math.hypot(a.x - a.targetX, a.y - a.targetY) < 26) {
-        for (let b = 0; b < a.bombs; b++) {
-          const impact = { x: a.targetX + rand(-a.spread, a.spread), y: a.targetY + rand(-a.spread, a.spread) };
-          state.battle.explosions.push({ x: impact.x, y: impact.y, r: 28, life: 0.45 });
-          for (const ship of state.battle.ships) {
-            if (ship.destroyed || ship.team === a.team) continue;
-            const d = Math.hypot(ship.x - impact.x, ship.y - impact.y);
-            if (d <= 38 + shipRadius(ship)) {
-              applyDamage(ship, a.damage * clamp(1 - d / 60, 0.4, 1), `${teamName(a.team)} bombers`);
-            }
+        if (a.bombCooldown <= 0) {
+          const targetShip = state.battle.ships.find(ship => !ship.destroyed && ship.team !== a.team && Math.hypot(ship.x - a.x, ship.y - a.y) < 70);
+          if (targetShip) {
+            dropBombAt(a, { x: targetShip.x, y: targetShip.y });
+            a.bombCooldown = 2.2;
           }
         }
-        a.stage = 'return';
+
+        if (a.patrolTime <= 0) a.stage = 'return';
+      } else {
+        const homeShip = getShipById(a.sourceId);
+        const targetAngle = Math.atan2(a.targetY - a.y, a.targetX - a.x);
+        const offX = Math.cos(targetAngle + Math.PI / 2) * a.lateralOffset;
+        const offY = Math.sin(targetAngle + Math.PI / 2) * a.lateralOffset;
+
+        const tx = a.stage === 'outbound'
+          ? a.targetX + (a.mode === 'strike' ? offX : 0)
+          : (homeShip ? homeShip.x : a.x);
+        const ty = a.stage === 'outbound'
+          ? a.targetY + (a.mode === 'strike' ? offY : 0)
+          : (homeShip ? homeShip.y : a.y);
+
+        const ang = Math.atan2(ty - a.y, tx - a.x);
+        a.x += Math.cos(ang) * a.speed * dt;
+        a.y += Math.sin(ang) * a.speed * dt;
+
+        if (a.stage === 'outbound' && Math.hypot(a.x - tx, a.y - ty) < 28) {
+          if (a.mode === 'patrol') {
+            a.stage = 'patrol';
+          } else if (!a.hasDroppedStrike) {
+            for (let b = 0; b < a.bombs; b++) {
+              const forward = (b - (a.bombs - 1) / 2) * 36;
+              const impact = {
+                x: a.x + Math.cos(ang) * forward,
+                y: a.y + Math.sin(ang) * forward
+              };
+              dropBombAt(a, impact);
+            }
+            a.hasDroppedStrike = true;
+            a.stage = 'return';
+          }
+        }
+
+        if (a.stage === 'return' && Math.hypot(a.x - tx, a.y - ty) < 28) {
+          if (homeShip && !homeShip.destroyed) {
+            homeShip.planesAvailable = Math.min(homeShip.planesTotal, homeShip.planesAvailable + 1);
+          }
+          list.splice(i, 1);
+        }
       }
-      if (a.stage === 'return' && Math.hypot(a.x - tx, a.y - ty) < 24) list.splice(i, 1);
     }
   }
 
@@ -2278,12 +2403,14 @@
       ctx.translate(sp.x, sp.y);
       ctx.fillStyle = a.team === 0 ? '#fff0b7' : '#ffc2b7';
       ctx.beginPath();
-      ctx.moveTo(0, -5);
-      ctx.lineTo(10, 0);
-      ctx.lineTo(0, 5);
+      ctx.moveTo(0, -6);
+      ctx.lineTo(11, 0);
+      ctx.lineTo(0, 6);
       ctx.lineTo(2, 0);
       ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.stroke();
       ctx.restore();
     }
   }
@@ -2426,7 +2553,7 @@
         return true;
       }
       if (!selectedShip.plan.weaponTargets) selectedShip.plan.weaponTargets = { guns: null, torps: null, bombers: null };
-      selectedShip.plan.weaponTargets[kind] = { x: clamp(world.x, 0, MAP_W), y: clamp(world.y, 0, MAP_H) };
+      selectedShip.plan.weaponTargets[kind] = { x: clamp(world.x, 0, MAP_W), y: clamp(world.y, 0, MAP_H), mode: kind === 'bombers' ? selectedShip.plan.bomberMode : undefined };
       clearPendingAction();
       state.message = successText;
       refreshPanels();
