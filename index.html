@@ -360,8 +360,8 @@
   const centerViewBtn = document.getElementById('centerView');
 
   const DOCK_HEIGHT = 176;
-  const SAVE_VERSION = 2;
-  const SAVE_KEY = 'navalBattleSave_v2';
+  const SAVE_VERSION = 3;
+  const SAVE_KEY = 'navalBattleSave_v3';
   let lastAutoSaveAt = 0;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
@@ -369,6 +369,9 @@
   const FLEET_BUDGET = 13;
   const MAP_W = 5200;
   const MAP_H = 3600;
+  const ARENA_CX = MAP_W / 2;
+  const ARENA_CY = MAP_H / 2;
+  const ARENA_R = 1580;
   const RESOLVE_TIME_SCALE = 1.0;
   const SHELL_SPLASH_RADIUS = 24;
   const TORPEDO_HIT_RADIUS = 18;
@@ -379,8 +382,8 @@
     destroyer: {
       key: 'destroyer', name: 'Destroyer', cost: 2,
       maxSpeed: 108, acceleration: 30, maxHealth: 95, gunDamage: 22, gunAccuracy: 0.68,
-      reload: 8, projectileSpeed: 400, detection: 270, aa: 28, aaRange: 150,
-      torpedoes: { damage: 52, speed: 250, reload: 12, spread: 24, range: 430 },
+      reload: 8, gunRange: 700, projectileSpeed: 480, detection: 430, aa: 28, aaRange: 170,
+      torpedoes: { damage: 52, speed: 290, reload: 12, spread: 24, range: 760 },
       mines: { damage: 42, limit: 5 },
       guns: { count: 2, splash: 28 },
       turnRate: 2.0,
@@ -390,8 +393,8 @@
     cruiser: {
       key: 'cruiser', name: 'Cruiser', cost: 3,
       maxSpeed: 86, acceleration: 24, maxHealth: 135, gunDamage: 32, gunAccuracy: 0.72,
-      reload: 9, projectileSpeed: 430, detection: 300, aa: 44, aaRange: 190,
-      torpedoes: { damage: 46, speed: 240, reload: 14, spread: 18, range: 360 },
+      reload: 9, gunRange: 920, projectileSpeed: 540, detection: 500, aa: 44, aaRange: 220,
+      torpedoes: { damage: 46, speed: 280, reload: 14, spread: 18, range: 620 },
       mines: null,
       guns: { count: 3, splash: 34 },
       turnRate: 1.55,
@@ -401,7 +404,7 @@
     battleship: {
       key: 'battleship', name: 'Battleship', cost: 4,
       maxSpeed: 68, acceleration: 18, maxHealth: 220, gunDamage: 56, gunAccuracy: 0.79,
-      reload: 12, projectileSpeed: 470, detection: 340, aa: 54, aaRange: 220,
+      reload: 12, gunRange: 1220, projectileSpeed: 620, detection: 600, aa: 54, aaRange: 260,
       torpedoes: null,
       mines: null,
       guns: { count: 4, splash: 42 },
@@ -412,8 +415,8 @@
     carrier: {
       key: 'carrier', name: 'Carrier', cost: 4,
       maxSpeed: 60, acceleration: 15, maxHealth: 165, gunDamage: 16, gunAccuracy: 0.62,
-      reload: 11, projectileSpeed: 360, detection: 310, aa: 62, aaRange: 240,
-      bombers: { damage: 46, speed: 300, health: 75, reload: 12, bombs: 3, spread: 46, range: 700 },
+      reload: 11, gunRange: 640, projectileSpeed: 420, detection: 520, aa: 62, aaRange: 270,
+      bombers: { damage: 46, speed: 320, health: 75, reload: 12, bombs: 3, spread: 46, range: 1450 },
       torpedoes: null,
       mines: null,
       guns: { count: 1, splash: 22 },
@@ -424,8 +427,8 @@
     submarine: {
       key: 'submarine', name: 'Submarine', cost: 3,
       maxSpeed: 76, acceleration: 22, maxHealth: 90, gunDamage: 10, gunAccuracy: 0.58,
-      reload: 11, projectileSpeed: 320, detection: 240, aa: 0, aaRange: 0,
-      torpedoes: { damage: 62, speed: 260, reload: 10, spread: 12, range: 460 },
+      reload: 11, gunRange: 460, projectileSpeed: 380, detection: 360, aa: 0, aaRange: 0,
+      torpedoes: { damage: 62, speed: 310, reload: 10, spread: 12, range: 820 },
       mines: { damage: 36, limit: 4 },
       guns: { count: 1, splash: 14 },
       turnRate: 1.35,
@@ -462,6 +465,16 @@
     if (state.logs.length > 60) state.logs.length = 60;
   }
 
+  function addFloatingText(x, y, text, color = '#ffffff', life = 1.2) {
+    if (!state.battle) return;
+    state.battle.floatingTexts.push({ x, y, text, color, life, maxLife: life });
+  }
+
+  function addPing(x, y, label = 'Spotted', color = 'rgba(255,235,120,0.95)') {
+    if (!state.battle) return;
+    state.battle.pings.push({ x, y, label, color, life: 1.0, maxLife: 1.0 });
+  }
+
   function serializeBattle(battle) {
     if (!battle) return null;
     return {
@@ -482,6 +495,8 @@
       return ship;
     });
     battle.actionExecutedThisTurn = new Set(battle.actionExecutedThisTurn || []);
+    if (!battle.floatingTexts) battle.floatingTexts = [];
+    if (!battle.pings) battle.pings = [];
     return battle;
   }
 
@@ -552,6 +567,16 @@
     };
   }
 
+  function clampToArena(point, margin = 0) {
+    const dx = point.x - ARENA_CX;
+    const dy = point.y - ARENA_CY;
+    const d = Math.hypot(dx, dy);
+    const maxR = ARENA_R - margin;
+    if (d <= maxR || d === 0) return point;
+    const s = maxR / d;
+    return { x: ARENA_CX + dx * s, y: ARENA_CY + dy * s };
+  }
+
   function lineCircleHit(p1, p2, c, r) {
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
@@ -608,30 +633,37 @@
       simTime: 0,
       winner: null,
       lastVisibilityCheck: 0,
-      previews: []
+      previews: [],
+      floatingTexts: [],
+      pings: []
     };
   }
 
   function generateIslands() {
     const islands = [];
 
-    const addIsland = (minR, maxR, margin, spacing) => {
+    const spawnPoints = [
+      { x: ARENA_CX, y: ARENA_CY + (ARENA_R - 180) },
+      { x: ARENA_CX, y: ARENA_CY - (ARENA_R - 180) },
+      { x: ARENA_CX + (ARENA_R - 180), y: ARENA_CY }
+    ];
+
+    const addIsland = (minR, maxR, spacing) => {
       let tries = 0;
-      while (tries++ < 220) {
+      while (tries++ < 260) {
+        const ang = rand(0, Math.PI * 2);
+        const radial = Math.sqrt(Math.random()) * (ARENA_R - maxR - 120);
         const island = {
-          x: rand(margin, MAP_W - margin),
-          y: rand(margin, MAP_H - margin),
+          x: ARENA_CX + Math.cos(ang) * radial,
+          y: ARENA_CY + Math.sin(ang) * radial,
           r: rand(minR, maxR),
           bump: rand(0.88, 1.18),
           rot: rand(0, Math.PI * 2)
         };
         const tooClose = islands.some(other => Math.hypot(other.x - island.x, other.y - island.y) < other.r + island.r + spacing);
-        const tooSpawn = (
-          Math.hypot(island.x - MAP_W / 2, island.y - (MAP_H - 240)) < island.r + 420 ||
-          Math.hypot(island.x - MAP_W / 2, island.y - 240) < island.r + 420 ||
-          Math.hypot(island.x - (MAP_W - 260), island.y - MAP_H / 2) < island.r + 380
-        );
-        if (!tooClose && !tooSpawn) {
+        const outsideArena = Math.hypot(island.x - ARENA_CX, island.y - ARENA_CY) > ARENA_R - island.r - 80;
+        const tooSpawn = spawnPoints.some(p => Math.hypot(island.x - p.x, island.y - p.y) < island.r + 420);
+        if (!tooClose && !tooSpawn && !outsideArena) {
           islands.push(island);
           return true;
         }
@@ -640,10 +672,10 @@
     };
 
     const bigCount = irand(2, 3);
-    for (let i = 0; i < bigCount; i++) addIsland(190, 320, 320, 180);
+    for (let i = 0; i < bigCount; i++) addIsland(220, 360, 180);
 
     const smallCount = irand(18, 28);
-    for (let i = 0; i < smallCount; i++) addIsland(35, 95, 110, 46);
+    for (let i = 0; i < smallCount; i++) addIsland(35, 95, 46);
 
     return islands;
   }
@@ -653,10 +685,11 @@
     const battle = state.battle;
     battle.islands = generateIslands();
 
+    const spawnR = ARENA_R - 180;
     const teamStarts = [
-      { x: MAP_W / 2, y: MAP_H - 220 },
-      { x: MAP_W / 2, y: 220 },
-      { x: MAP_W - 240, y: MAP_H / 2 }
+      { x: ARENA_CX, y: ARENA_CY + spawnR },
+      { x: ARENA_CX, y: ARENA_CY - spawnR },
+      { x: ARENA_CX + spawnR, y: ARENA_CY }
     ];
 
     const lineOffsets = [-150, -50, 50, 150];
@@ -716,12 +749,16 @@
     const cx = playerShips.reduce((a, s) => a + s.x, 0) / playerShips.length;
     const cy = playerShips.reduce((a, s) => a + s.y, 0) / playerShips.length;
     state.view.x = cx;
-    state.view.y = cy - 320;
+    state.view.y = cy - 260;
   }
 
   function updateVisibility(forceAll = false) {
     const battle = state.battle;
     if (!battle) return;
+    const previouslyVisibleToPlayer = new Set(
+      battle.ships.filter(s => s.team !== 0 && s.visibleBy && s.visibleBy.has(0) && !s.destroyed).map(s => s.id)
+    );
+
     battle.ships.forEach(s => {
       s.visibleBy = new Set([s.team]);
     });
@@ -742,6 +779,13 @@
         if (Math.hypot(observer.x - target.x, observer.y - target.y) > detect) continue;
         target.visibleBy.add(observer.team);
         if (observer.team === 0) target.lastSeenTurnByPlayer = state.turn;
+      }
+    }
+
+    for (const target of battle.ships) {
+      if (target.team !== 0 && target.visibleBy.has(0) && !previouslyVisibleToPlayer.has(target.id)) {
+        addPing(target.x, target.y, 'Spotted');
+        log(`Spotted ${shipDisplayName(target)}.`);
       }
     }
 
@@ -777,7 +821,7 @@
 
   function getWeaponRange(ship, kind) {
     const type = shipTypes[ship.type];
-    if (kind === 'guns') return type.gunRange || 500;
+    if (kind === 'guns') return type.gunRange || 700;
     if (kind === 'torps') return type.torpedoes ? type.torpedoes.range : 0;
     if (kind === 'bombers') return type.bombers ? type.bombers.range : 0;
     return 0;
@@ -847,10 +891,10 @@
   }
 
   function clampCoursePoint(point) {
-    return {
+    return clampToArena({
       x: clamp(point.x, 24, MAP_W - 24),
       y: clamp(point.y, 24, MAP_H - 24)
-    };
+    }, 24);
   }
 
   function snapCoursePointToSafeWater(ship, point, anchor = null) {
@@ -1408,7 +1452,7 @@
       if (closest) {
         const d = Math.hypot(closest.x - ship.x, closest.y - ship.y);
         const ang = angleTo(ship, closest);
-        const desiredRange = ship.type === 'battleship' ? 390 : ship.type === 'destroyer' ? 250 : ship.type === 'carrier' ? 520 : 320;
+        const desiredRange = ship.type === 'battleship' ? 840 : ship.type === 'destroyer' ? 460 : ship.type === 'carrier' ? 1180 : ship.type === 'cruiser' ? 680 : 520;
         let dest = { x: ship.x + Math.cos(ang) * 160, y: ship.y + Math.sin(ang) * 160 };
 
         const coverIsland = battle.islands.find(island => Math.hypot(island.x - ship.x, island.y - ship.y) < 420 && Math.hypot(island.x - closest.x, island.y - closest.y) < 420);
@@ -1516,6 +1560,7 @@
     if (target.destroyed) return;
     target.hp -= amount;
     state.battle.explosions.push({ x: target.x, y: target.y, r: 20 + amount * 0.3, life: 0.7 });
+    addFloatingText(target.x, target.y - 18, '-' + fmt(amount), target.team === 0 ? '#ffd2d2' : '#fff4c9', 1.0);
     if (canPlayerSee(target) || target.team === 0 || sourceText.includes('Player')) {
       log(`${sourceText} hits ${shipDisplayName(target)} for ${fmt(amount)}.`);
     }
@@ -1583,6 +1628,8 @@
     updateAircraft(dt);
     updateMines(dt);
     updateExplosions(dt);
+    updateFloatingTexts(dt);
+    updatePings(dt);
 
     battle.lastVisibilityCheck += dt;
     if (battle.lastVisibilityCheck >= VIS_RECHECK_RATE) {
@@ -1620,8 +1667,9 @@
     const old = { x: ship.x, y: ship.y };
     ship.x += Math.cos(ship.angle) * ship.speed * dt;
     ship.y += Math.sin(ship.angle) * ship.speed * dt;
-    ship.x = clamp(ship.x, 20, MAP_W - 20);
-    ship.y = clamp(ship.y, 20, MAP_H - 20);
+    let bounded = clampToArena({ x: ship.x, y: ship.y }, 20);
+    ship.x = bounded.x;
+    ship.y = bounded.y;
 
     for (const island of state.battle.islands) {
       const rad = island.r + shipRadius(ship) + 6;
@@ -1676,6 +1724,8 @@
         sourceId: ship.id,
         x: ship.x,
         y: ship.y,
+        prevX: ship.x,
+        prevY: ship.y,
         startX: ship.x,
         startY: ship.y,
         targetX: landing.x,
@@ -1687,6 +1737,7 @@
         color: teamColors[ship.team]
       });
     }
+    state.battle.explosions.push({ x: ship.x, y: ship.y, r: 14, life: 0.22 });
     if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} opens fire.`);
   }
 
@@ -1703,6 +1754,8 @@
         sourceId: ship.id,
         x: ship.x,
         y: ship.y,
+        prevX: ship.x,
+        prevY: ship.y,
         angle: dir,
         speed: torp.speed,
         rangeLeft: torp.range,
@@ -1710,6 +1763,7 @@
         life: torp.range / torp.speed + 0.5
       });
     }
+    state.battle.explosions.push({ x: ship.x, y: ship.y, r: 10, life: 0.18 });
     if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} launches torpedoes.`);
   }
 
@@ -1730,6 +1784,7 @@
       stage: 'outbound'
     };
     state.battle.aircraft.push(aircraft);
+    addPing(ship.x, ship.y, 'Aircraft Away', 'rgba(255,220,150,0.95)');
     if (ship.team === 0 || canPlayerSee(ship)) log(`${shipDisplayName(ship)} launches bombers.`);
   }
 
@@ -1746,6 +1801,8 @@
     const list = state.battle.projectiles;
     for (let i = list.length - 1; i >= 0; i--) {
       const p = list[i];
+      p.prevX = p.x;
+      p.prevY = p.y;
       p.t += dt / p.duration;
       p.x = lerp(p.startX, p.targetX, p.t);
       p.y = lerp(p.startY, p.targetY, p.t);
@@ -1769,6 +1826,8 @@
     for (let i = list.length - 1; i >= 0; i--) {
       const t = list[i];
       const old = { x: t.x, y: t.y };
+      t.prevX = t.x;
+      t.prevY = t.y;
       t.x += Math.cos(t.angle) * t.speed * dt;
       t.y += Math.sin(t.angle) * t.speed * dt;
       t.rangeLeft -= t.speed * dt;
@@ -1868,6 +1927,23 @@
     }
   }
 
+  function updateFloatingTexts(dt) {
+    const list = state.battle.floatingTexts || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      list[i].life -= dt;
+      list[i].y -= 18 * dt;
+      if (list[i].life <= 0) list.splice(i, 1);
+    }
+  }
+
+  function updatePings(dt) {
+    const list = state.battle.pings || [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      list[i].life -= dt;
+      if (list[i].life <= 0) list.splice(i, 1);
+    }
+  }
+
   function render() {
     resizeCanvas();
     drawBackground();
@@ -1880,6 +1956,9 @@
       drawShips();
       drawAircraft();
       drawExplosions();
+      drawPings();
+      drawFloatingTexts();
+      drawArenaBoundary();
       drawMinimapHint();
     }
   }
@@ -2068,6 +2147,14 @@
   function drawProjectiles() {
     for (const p of state.battle.projectiles) {
       const sp = worldToScreen(p.x, p.y);
+      const pp = worldToScreen(p.prevX ?? p.x, p.prevY ?? p.y);
+      ctx.strokeStyle = p.color.replace(')', ', 0.0)');
+      ctx.beginPath();
+      ctx.moveTo(pp.x, pp.y);
+      ctx.lineTo(sp.x, sp.y);
+      ctx.lineWidth = Math.max(1.5, 3 * state.view.zoom);
+      ctx.strokeStyle = p.color;
+      ctx.stroke();
       ctx.beginPath();
       ctx.arc(sp.x, sp.y, Math.max(2, 4 * state.view.zoom), 0, Math.PI * 2);
       ctx.fillStyle = p.color;
@@ -2075,7 +2162,14 @@
     }
     for (const t of state.battle.torpedoes) {
       const sp = worldToScreen(t.x, t.y);
+      const pp = worldToScreen(t.prevX ?? t.x, t.prevY ?? t.y);
       const r = Math.max(3, 6 * state.view.zoom);
+      ctx.strokeStyle = 'rgba(180,245,255,0.55)';
+      ctx.lineWidth = Math.max(1, 2.2 * state.view.zoom);
+      ctx.beginPath();
+      ctx.moveTo(pp.x, pp.y);
+      ctx.lineTo(sp.x, sp.y);
+      ctx.stroke();
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.rotate(t.angle);
@@ -2208,6 +2302,56 @@
       ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2);
       ctx.fill();
     }
+  }
+
+  function drawPings() {
+    for (const ping of state.battle.pings || []) {
+      const sp = worldToScreen(ping.x, ping.y);
+      const alpha = clamp(ping.life / ping.maxLife, 0, 1);
+      const radius = 14 + (1 - alpha) * 26;
+      ctx.strokeStyle = ping.color.replace('0.95', String(0.9 * alpha));
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,245,190,${0.95 * alpha})`;
+      ctx.font = '12px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(ping.label, sp.x, sp.y - radius - 4);
+    }
+  }
+
+  function drawFloatingTexts() {
+    for (const ft of state.battle.floatingTexts || []) {
+      const sp = worldToScreen(ft.x, ft.y);
+      const alpha = clamp(ft.life / ft.maxLife, 0, 1);
+      ctx.globalAlpha = alpha;
+      ctx.font = 'bold 13px system-ui';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = ft.color;
+      ctx.fillText(ft.text, sp.x, sp.y);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  function drawArenaBoundary() {
+    const c = worldToScreen(ARENA_CX, ARENA_CY);
+    const r = ARENA_R * state.view.zoom;
+    if (r < 8) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.arc(c.x, c.y, r, 0, Math.PI * 2, true);
+    ctx.fillStyle = 'rgba(3,8,15,0.45)';
+    ctx.fill('evenodd');
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(170,220,255,0.38)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawMinimapHint() {
@@ -2442,8 +2586,8 @@
     const halfW = canvas.width / 2 / state.view.zoom;
     const halfH = canvas.height / 2 / state.view.zoom;
     const extra = 320;
-    state.view.x = clamp(state.view.x, halfW - extra, MAP_W - halfW + extra);
-    state.view.y = clamp(state.view.y, halfH - extra, MAP_H - halfH + extra);
+    state.view.x = clamp(state.view.x, ARENA_CX - ARENA_R - extra + halfW, ARENA_CX + ARENA_R + extra - halfW);
+    state.view.y = clamp(state.view.y, ARENA_CY - ARENA_R - extra + halfH, ARENA_CY + ARENA_R + extra - halfH);
   }
 
   function gameLoop() {
