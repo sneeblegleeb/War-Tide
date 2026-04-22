@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<title>War Tide</title>
+<title>Turn-Based Naval Battle</title>
 <style>
   :root {
     --bg: #07131f;
@@ -360,8 +360,8 @@
   const centerViewBtn = document.getElementById('centerView');
 
   const DOCK_HEIGHT = 176;
-  const SAVE_VERSION = 4;
-  const SAVE_KEY = 'warTideSave_v4';
+  const SAVE_VERSION = 3;
+  const SAVE_KEY = 'navalBattleSave_v3';
   let lastAutoSaveAt = 0;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
@@ -520,10 +520,6 @@
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
     } catch (err) {}
-  }
-
-  function clearSavedGame() {
-    try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
   }
 
   function loadGameState() {
@@ -865,7 +861,7 @@
     if (kind === 'dest') return 'Tap the map to add course points for the selected ship. Tap Finish Plot when you are done.';
     if (kind === 'guns') return `Tap the map to set a gun target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'guns'))}.`;
     if (kind === 'torps') return `Tap the map to set a torpedo target point. Range: ${fmt(getWeaponRange(getSelectedShip(), 'torps'))}.`;
-    if (kind === 'bombers') return `Tap the map to set a bomber target. Mode: ${(getSelectedShip()?.plan?.bomberMode === 'patrol') ? 'Patrol' : 'Strike'} · Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.`;
+    if (kind === 'bombers') return getSelectedShip()?.plan?.bomberMode === 'strike' ? `Tap and drag to set the bomber strike direction. Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.` : `Tap the map to set a bomber patrol area. Range: ${fmt(getWeaponRange(getSelectedShip(), 'bombers'))}.`;
     return 'Tap the map to place the order.';
   }
 
@@ -1095,7 +1091,7 @@
     overlay.classList.add('show');
     const selected = shipTypes[state.setup.selectedType];
     modalContent.innerHTML = `
-      <h1>War Tide</h1>
+      <h1>Naval Battle</h1>
       <p class="muted" style="margin-top:8px;">Mobile-first prototype: pan the map, zoom in or out, plan orders ship by ship, then end the turn and watch the battle resolve simultaneously.</p>
       <div class="banner">Defaults in this build: 8-second turns, 4 ships per fleet, 13 fleet points, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
       <div class="grid setupGrid">
@@ -1249,9 +1245,6 @@
     document.getElementById('playAgainBtn').addEventListener('click', () => {
       state.mode = 'setup';
       state.pendingAction = null;
-      state.battle = null;
-      state.selectedShipId = null;
-      clearSavedGame();
       showSetup();
     });
   }
@@ -1359,9 +1352,6 @@
       html += '<button class="actionBtn" id="nextShipBtn">Next Ship</button>';
       html += '<button class="actionBtn" id="centerShipBtn">Center View</button>';
       html += '<button class="actionBtn danger" id="endTurnBtn">End Turn</button>';
-      html += '</div>';
-      html += '<div class="row" style="margin-top:8px;">';
-      html += '<button class="actionBtn danger" id="endGameBtn" style="width:100%;">End Game</button>';
       html += '</div>';
 
       html += '<div class="row small" style="margin-top:8px;"><div id="orderSummary">' + escapeHtml(describeCurrentOrder(ship)) + ' · Visible enemies: ' + visibleEnemies + '</div></div>';
@@ -1479,17 +1469,6 @@
       };
       const endTurnBtn = document.getElementById('endTurnBtn');
       if (endTurnBtn) endTurnBtn.onclick = runTurn;
-      const endGameBtn = document.getElementById('endGameBtn');
-      if (endGameBtn) endGameBtn.onclick = () => {
-        clearPendingAction();
-        state.battle = null;
-        state.mode = 'setup';
-        state.selectedShipId = null;
-        state.message = '';
-        state.logs = [];
-        clearSavedGame();
-        showSetup();
-      };
 
     } catch (err) {
       commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Controls hit an error. Minimal fallback is active.</div><div class="small" style="margin-top:4px;color:#ffd2d2;">' + escapeHtml(String(err && err.message || err)) + '</div>' +
@@ -1853,9 +1832,12 @@
     }
 
     ship.planesAvailable -= count;
+    const strikeAngle = typeof target.angle === 'number' ? target.angle : Math.atan2(target.y - ship.y, target.x - ship.x);
+    const lanePerpX = Math.cos(strikeAngle + Math.PI / 2);
+    const lanePerpY = Math.sin(strikeAngle + Math.PI / 2);
 
     for (let i = 0; i < count; i++) {
-      const lateral = (i - (count - 1) / 2) * 44;
+      const lateral = (i - (count - 1) / 2) * 60;
       const aircraft = {
         team: ship.team,
         sourceId: ship.id,
@@ -1863,6 +1845,9 @@
         y: ship.y,
         targetX: target.x,
         targetY: target.y,
+        laneTargetX: target.x + lanePerpX * lateral,
+        laneTargetY: target.y + lanePerpY * lateral,
+        strikeAngle,
         speed: b.speed,
         hp: b.health,
         damage: b.damage,
@@ -1876,7 +1861,9 @@
         bombCooldown: 0,
         patrolTime: TURN_DURATION * 2.3,
         orbitAngle: (i / Math.max(1, count)) * Math.PI * 2,
-        hasDroppedStrike: false
+        hasDroppedStrike: false,
+        flightTime: 0,
+        returnTime: 0
       };
       state.battle.aircraft.push(aircraft);
     }
@@ -1966,6 +1953,8 @@
 
     for (let i = list.length - 1; i >= 0; i--) {
       const a = list[i];
+      a.flightTime = (a.flightTime || 0) + dt;
+      if (a.stage === 'return') a.returnTime = (a.returnTime || 0) + dt;
 
       for (const ship of state.battle.ships) {
         if (ship.destroyed || ship.team === a.team) continue;
@@ -2003,39 +1992,52 @@
         if (a.patrolTime <= 0) a.stage = 'return';
       } else {
         const homeShip = getShipById(a.sourceId);
-        const targetAngle = Math.atan2(a.targetY - a.y, a.targetX - a.x);
-        const offX = Math.cos(targetAngle + Math.PI / 2) * a.lateralOffset;
-        const offY = Math.sin(targetAngle + Math.PI / 2) * a.lateralOffset;
-
         const tx = a.stage === 'outbound'
-          ? a.targetX + (a.mode === 'strike' ? offX : 0)
+          ? (a.mode === 'strike' ? a.laneTargetX : a.targetX)
           : (homeShip ? homeShip.x : a.x);
         const ty = a.stage === 'outbound'
-          ? a.targetY + (a.mode === 'strike' ? offY : 0)
+          ? (a.mode === 'strike' ? a.laneTargetY : a.targetY)
           : (homeShip ? homeShip.y : a.y);
 
-        const ang = Math.atan2(ty - a.y, tx - a.x);
-        a.x += Math.cos(ang) * a.speed * dt;
-        a.y += Math.sin(ang) * a.speed * dt;
+        const dx = tx - a.x;
+        const dy = ty - a.y;
+        const distToTarget = Math.hypot(dx, dy);
+        const ang = distToTarget > 0.001 ? Math.atan2(dy, dx) : (a.strikeAngle || 0);
+        const step = a.speed * dt;
 
-        if (a.stage === 'outbound' && Math.hypot(a.x - tx, a.y - ty) < 28) {
+        if (distToTarget <= step) {
+          a.x = tx;
+          a.y = ty;
+        } else {
+          a.x += Math.cos(ang) * step;
+          a.y += Math.sin(ang) * step;
+        }
+
+        if (a.stage === 'outbound' && distToTarget < 28) {
           if (a.mode === 'patrol') {
             a.stage = 'patrol';
           } else if (!a.hasDroppedStrike) {
+            const strikeAng = a.strikeAngle || ang;
             for (let b = 0; b < a.bombs; b++) {
-              const forward = (b - (a.bombs - 1) / 2) * 36;
+              const forward = (b - (a.bombs - 1) / 2) * 42;
               const impact = {
-                x: a.x + Math.cos(ang) * forward,
-                y: a.y + Math.sin(ang) * forward
+                x: a.x + Math.cos(strikeAng) * forward,
+                y: a.y + Math.sin(strikeAng) * forward
               };
               dropBombAt(a, impact);
             }
             a.hasDroppedStrike = true;
             a.stage = 'return';
+            a.returnTime = 0;
           }
         }
 
-        if (a.stage === 'return' && Math.hypot(a.x - tx, a.y - ty) < 28) {
+        const docked = a.stage === 'return' && (
+          distToTarget < 34 ||
+          (homeShip && Math.hypot(a.x - homeShip.x, a.y - homeShip.y) < 56) ||
+          a.returnTime > 10
+        );
+        if (docked) {
           if (homeShip && !homeShip.destroyed) {
             homeShip.planesAvailable = Math.min(homeShip.planesTotal, homeShip.planesAvailable + 1);
           }
@@ -2251,10 +2253,36 @@
         ctx.moveTo(tp.x, tp.y - 22);
         ctx.lineTo(tp.x, tp.y + 22);
         ctx.stroke();
+        if (target.mode === 'strike' && typeof target.angle === 'number') {
+          const dx = Math.cos(target.angle);
+          const dy = Math.sin(target.angle);
+          const px = Math.cos(target.angle + Math.PI / 2);
+          const py = Math.sin(target.angle + Math.PI / 2);
+          ctx.setLineDash([6, 5]);
+          for (const lateral of [-60, 0, 60]) {
+            const cx = target.x + px * lateral;
+            const cy = target.y + py * lateral;
+            const a = worldToScreen(cx - dx * 54, cy - dy * 54);
+            const b = worldToScreen(cx + dx * 54, cy + dy * 54);
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+        }
       };
       drawReticle(weaponTargets.guns, 'rgba(255,208,130,0.9)');
       drawReticle(weaponTargets.torps, 'rgba(122,225,255,0.9)');
       drawReticle(weaponTargets.bombers, 'rgba(255,200,120,0.9)');
+      if (selected && state.pendingAction === 'bombers' && ship.plan.bomberMode === 'strike' && state.pointer.aimWorldStart) {
+        drawReticle({
+          x: state.pointer.aimWorldStart.x,
+          y: state.pointer.aimWorldStart.y,
+          mode: 'strike',
+          angle: Math.atan2((state.pointer.aimWorldCurrent?.y ?? state.pointer.aimWorldStart.y) - state.pointer.aimWorldStart.y, (state.pointer.aimWorldCurrent?.x ?? state.pointer.aimWorldStart.x) - state.pointer.aimWorldStart.x)
+        }, 'rgba(255,220,150,0.95)');
+      }
     }
   }
 
@@ -2538,6 +2566,28 @@
     ctx.restore();
   }
 
+  function setBomberTarget(ship, startWorld, endWorld = null) {
+    const range = getWeaponRange(ship, 'bombers');
+    const d = Math.hypot(startWorld.x - ship.x, startWorld.y - ship.y);
+    if (range > 0 && d > range) {
+      state.message = `Bomber target is out of range (${fmt(d)} > ${fmt(range)}).`;
+      refreshPanels();
+      return false;
+    }
+    if (!ship.plan.weaponTargets) ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
+    const angle = endWorld ? Math.atan2(endWorld.y - startWorld.y, endWorld.x - startWorld.x) : Math.atan2(startWorld.y - ship.y, startWorld.x - ship.x);
+    ship.plan.weaponTargets.bombers = {
+      x: clamp(startWorld.x, 0, MAP_W),
+      y: clamp(startWorld.y, 0, MAP_H),
+      mode: ship.plan.bomberMode,
+      angle
+    };
+    clearPendingAction();
+    state.message = ship.plan.bomberMode === 'strike' ? 'Bomber strike target and direction set.' : 'Bomber patrol target set.';
+    refreshPanels();
+    return true;
+  }
+
   function handleMapTap(world) {
     if (state.mode !== 'battle' || state.battle.turnPhase !== 'planning') return;
     const selectedShip = getSelectedShip();
@@ -2583,7 +2633,7 @@
 
     if (state.pendingAction === 'guns') return void tryTargetedAction('guns', 'Gun target set.');
     if (state.pendingAction === 'torps') return void tryTargetedAction('torps', 'Torpedo target set.');
-    if (state.pendingAction === 'bombers') return void tryTargetedAction('bombers', 'Bomber strike target set.');
+    if (state.pendingAction === 'bombers') return void setBomberTarget(selectedShip, { x: world.x, y: world.y });
 
     if (tappedShip && tappedShip.team !== 0 && canPlayerSee(tappedShip)) {
       state.message = `${shipDisplayName(tappedShip)} selected as a visual reference. Lead your shot if it’s moving.`;
@@ -2642,6 +2692,9 @@
     const clearPointerState = () => {
       state.pointer.down = false;
       state.pointer.dragging = false;
+      state.pointer.aimWorldStart = null;
+      state.pointer.aimWorldCurrent = null;
+      state.pointer.aimingBomberStrike = false;
     };
 
     canvas.addEventListener('pointerdown', e => {
@@ -2650,6 +2703,12 @@
       state.pointer.dragging = false;
       state.pointer.startX = state.pointer.lastX = e.clientX;
       state.pointer.startY = state.pointer.lastY = e.clientY;
+      const selectedShip = getSelectedShip();
+      if (state.mode === 'battle' && state.battle?.turnPhase === 'planning' && state.pendingAction === 'bombers' && selectedShip?.plan?.bomberMode === 'strike') {
+        state.pointer.aimingBomberStrike = true;
+        state.pointer.aimWorldStart = screenToWorld(e.clientX, e.clientY);
+        state.pointer.aimWorldCurrent = state.pointer.aimWorldStart;
+      }
       canvas.setPointerCapture?.(e.pointerId);
     });
 
@@ -2661,6 +2720,10 @@
       state.pointer.lastX = e.clientX;
       state.pointer.lastY = e.clientY;
       if (total > 6) state.pointer.dragging = true;
+      if (state.pointer.aimingBomberStrike) {
+        state.pointer.aimWorldCurrent = screenToWorld(e.clientX, e.clientY);
+        return;
+      }
       if (state.pointer.dragging) {
         state.view.x -= dx / state.view.zoom;
         state.view.y -= dy / state.view.zoom;
@@ -2671,9 +2734,18 @@
     canvas.addEventListener('pointerup', e => {
       if (!state.pointer.down) return;
       const wasDragging = state.pointer.dragging;
+      const aimingBomberStrike = state.pointer.aimingBomberStrike;
+      const aimStart = state.pointer.aimWorldStart;
+      const aimEnd = state.pointer.aimWorldCurrent || screenToWorld(e.clientX, e.clientY);
       state.pointer.down = false;
       state.pointer.dragging = false;
-      if (!wasDragging) {
+      state.pointer.aimingBomberStrike = false;
+      state.pointer.aimWorldStart = null;
+      state.pointer.aimWorldCurrent = null;
+      if (aimingBomberStrike) {
+        const selectedShip = getSelectedShip();
+        if (selectedShip) setBomberTarget(selectedShip, aimStart || aimEnd, aimEnd);
+      } else if (!wasDragging) {
         handleMapTap(screenToWorld(e.clientX, e.clientY));
       }
     });
