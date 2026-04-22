@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<title>Turn-Based Naval Battle</title>
+<title>War Tide</title>
 <style>
   :root {
     --bg: #07131f;
@@ -365,8 +365,8 @@
   let lastAutoSaveAt = 0;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
-  const FLEET_SLOTS = 4;
-  const FLEET_BUDGET = 13;
+  const DEFAULT_FLEET_SLOTS = 4;
+  const BASE_FLEET_BUDGET = 13;
   const MAP_W = 5200;
   const MAP_H = 3600;
   const ARENA_CX = MAP_W / 2;
@@ -451,7 +451,8 @@
     bots: 2,
     setup: {
       selectedType: 'destroyer',
-      fleet: []
+      fleet: [],
+      fleetSize: DEFAULT_FLEET_SLOTS
     },
     battle: null,
     selectedShipId: null,
@@ -697,7 +698,7 @@
       { x: ARENA_CX + spawnR, y: ARENA_CY }
     ];
 
-    const lineOffsets = [-150, -50, 50, 150];
+    const lineOffsets = makeLineOffsets(Math.max(getFleetLimit(), playerFleet.length || 1), 120);
     playerFleet.forEach((typeKey, i) => {
       battle.ships.push(makeShip(0, typeKey, teamStarts[0].x + lineOffsets[i] + rand(-20, 20), teamStarts[0].y + rand(-16, 16), -Math.PI / 2));
     });
@@ -724,15 +725,15 @@
   function generateAIFleet() {
     const keys = Object.keys(shipTypes);
     const fleet = [];
-    let points = FLEET_BUDGET;
-    const cheapestCost = Math.min(...keys.map(k => shipTypes[k].cost));
-    while (fleet.length < FLEET_SLOTS) {
-      const remainingSlots = FLEET_SLOTS - fleet.length;
-      const minCostLeft = (remainingSlots - 1) * cheapestCost;
+    let points = getFleetBudget();
+    const limit = getFleetLimit();
+    const cheapest = Math.min(...keys.map(k => shipTypes[k].cost));
+    while (fleet.length < limit) {
+      const remainingSlots = limit - fleet.length;
+      const minCostLeft = (remainingSlots - 1) * cheapest;
       const affordable = keys.filter(k => shipTypes[k].cost <= points - minCostLeft + 0.001);
       const weighted = [];
       affordable.forEach(k => {
-        const t = shipTypes[k];
         let weight = 1;
         if (k === 'destroyer') weight = 2.3;
         if (k === 'cruiser') weight = 2.0;
@@ -741,7 +742,7 @@
         if (k === 'submarine') weight = 1.5;
         for (let i = 0; i < Math.round(weight * 2); i++) weighted.push(k);
       });
-      const pick = weighted[irand(0, weighted.length - 1)] || 'destroyer';
+      const pick = weighted[irand(0, weighted.length - 1)] || affordable[0] || 'destroyer';
       fleet.push(pick);
       points -= shipTypes[pick].cost;
     }
@@ -1083,21 +1084,37 @@
     return team === 0 ? 'Player' : `Bot ${team}`;
   }
 
+  function getFleetLimit() {
+    return clamp(Number(state.setup.fleetSize) || DEFAULT_FLEET_SLOTS, 1, 6);
+  }
+
+  function getFleetBudget() {
+    return Math.max(2, Math.round((BASE_FLEET_BUDGET / DEFAULT_FLEET_SLOTS) * getFleetLimit()));
+  }
+
+  function makeLineOffsets(count, spacing = 110) {
+    if (count <= 1) return [0];
+    const center = (count - 1) / 2;
+    const out = [];
+    for (let i = 0; i < count; i++) out.push((i - center) * spacing);
+    return out;
+  }
+
   function remainingSetupPoints() {
-    return FLEET_BUDGET - state.setup.fleet.reduce((sum, k) => sum + shipTypes[k].cost, 0);
+    return getFleetBudget() - state.setup.fleet.reduce((sum, k) => sum + shipTypes[k].cost, 0);
   }
 
   function showSetup() {
     overlay.classList.add('show');
     const selected = shipTypes[state.setup.selectedType];
     modalContent.innerHTML = `
-      <h1>Naval Battle</h1>
+      <h1>War Tide</h1>
       <p class="muted" style="margin-top:8px;">Mobile-first prototype: pan the map, zoom in or out, plan orders ship by ship, then end the turn and watch the battle resolve simultaneously.</p>
-      <div class="banner">Defaults in this build: 8-second turns, 4 ships per fleet, 13 fleet points, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
+      <div class="banner">Defaults in this build: 8-second turns, adjustable fleet sizes and fleet budgets, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
       <div class="grid setupGrid">
         <div class="card">
           <div class="sectionTitle">Choose your fleet</div>
-          <div class="small">Pick ${FLEET_SLOTS} ships. All sides get the same fleet size and point budget.</div>
+          <div class="small">Pick up to ${getFleetLimit()} ships. All sides use the same fleet cap and budget.</div>
           <div class="shipGrid" id="shipGrid"></div>
           <div class="stats">
             <div>Cost: <strong>${selected.cost}</strong></div>
@@ -1118,12 +1135,17 @@
                 <option value="2" ${state.bots === 2 ? 'selected' : ''}>2</option>
               </select>
             </div>
+            <div class="pill">Fleet Size
+              <select id="fleetSizeSelect">
+                ${[1,2,3,4,5,6].map(n => `<option value="${n}" ${getFleetLimit() === n ? 'selected' : ''}>${n}</option>`).join('')}
+              </select>
+            </div>
             <div class="small">Destroyers are flexible. Battleships hit hard. Carriers project force. Subs ambush. Cruisers support.</div>
           </div>
         </div>
         <div class="card">
           <div class="sectionTitle">Current fleet</div>
-          <div class="pill">Ships: ${state.setup.fleet.length}/${FLEET_SLOTS}</div>
+          <div class="pill">Ships: ${state.setup.fleet.length}/${getFleetLimit()}</div>
           <div class="pill">Points left: ${remainingSetupPoints()}</div>
           <div class="fleetList" id="fleetList"></div>
           <div class="legend">
@@ -1134,7 +1156,7 @@
           </div>
           <div class="footerRow">
             <button class="fleetBtn" id="clearFleetBtn">Clear Fleet</button>
-            <button class="startBtn" id="startBattleBtn" ${state.setup.fleet.length !== FLEET_SLOTS ? 'disabled' : ''}>Start Battle</button>
+            <button class="startBtn" id="startBattleBtn" ${state.setup.fleet.length < 1 ? 'disabled' : ''}>Start Battle</button>
           </div>
           <div class="small" style="margin-top:10px;">Need to fit more on the screen? Don’t. This build expects you to pan around the map.</div>
         </div>
@@ -1143,7 +1165,7 @@
 
     const shipGrid = document.getElementById('shipGrid');
     Object.values(shipTypes).forEach(type => {
-      const affordable = remainingSetupPoints() >= type.cost || state.setup.fleet.length >= FLEET_SLOTS;
+      const affordable = remainingSetupPoints() >= type.cost || state.setup.fleet.length >= getFleetLimit();
       const btn = document.createElement('button');
       btn.className = 'shipTypeBtn' + (type.key === state.setup.selectedType ? ' active' : '');
       btn.innerHTML = `<strong>${type.name}</strong><br><span class="small">${type.cost} pts · ${summarizeWeapons(type)}</span>`;
@@ -1155,7 +1177,7 @@
       const addBtn = document.createElement('button');
       addBtn.className = 'fleetBtn';
       addBtn.textContent = 'Add';
-      addBtn.disabled = !affordable || state.setup.fleet.length >= FLEET_SLOTS || remainingSetupPoints() < type.cost;
+      addBtn.disabled = !affordable || state.setup.fleet.length >= getFleetLimit() || remainingSetupPoints() < type.cost;
       addBtn.addEventListener('click', () => addShipToFleet(type.key));
       const wrapper = document.createElement('div');
       wrapper.className = 'fleetItem';
@@ -1166,6 +1188,13 @@
 
     document.getElementById('botCountSelect').addEventListener('change', e => {
       state.bots = Number(e.target.value);
+      showSetup();
+    });
+
+    const fleetSizeSelect = document.getElementById('fleetSizeSelect');
+    if (fleetSizeSelect) fleetSizeSelect.addEventListener('change', e => {
+      state.setup.fleetSize = Number(e.target.value);
+      while (state.setup.fleet.length > getFleetLimit()) state.setup.fleet.pop();
       showSetup();
     });
 
@@ -1209,7 +1238,7 @@
   }
 
   function addShipToFleet(typeKey) {
-    if (state.setup.fleet.length >= FLEET_SLOTS) return;
+    if (state.setup.fleet.length >= getFleetLimit()) return;
     const cost = shipTypes[typeKey].cost;
     if (remainingSetupPoints() < cost) return;
     state.setup.fleet.push(typeKey);
@@ -2379,6 +2408,7 @@
       ctx.moveTo(pp.x, pp.y);
       ctx.lineTo(sp.x, sp.y);
       ctx.stroke();
+      drawShipWake(ship, sp, baseSize);
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.rotate(t.angle);
@@ -2411,6 +2441,7 @@
       const sp = worldToScreen(ship.x, ship.y);
       const baseSize = shipRadius(ship) * state.view.zoom;
       if (sp.x < -50 || sp.y < -50 || sp.x > canvas.width + 50 || sp.y > canvas.height + 50) continue;
+      drawShipWake(ship, sp, baseSize);
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.rotate(ship.angle);
@@ -2446,43 +2477,98 @@
   function drawShipShape(ship, size) {
     const type = shipTypes[ship.type];
     const color = ship.team === 0 ? type.color : teamColors[ship.team];
-    const hull = ship.type === 'carrier' ? size * 1.9 : ship.type === 'battleship' ? size * 1.75 : size * 1.55;
-    const beam = ship.type === 'battleship' ? size * 0.72 : size * 0.58;
+    const hull = ship.type === 'carrier' ? size * 1.95 : ship.type === 'battleship' ? size * 1.8 : ship.type === 'submarine' ? size * 1.35 : size * 1.58;
+    const beam = ship.type === 'battleship' ? size * 0.78 : ship.type === 'carrier' ? size * 0.68 : ship.type === 'submarine' ? size * 0.42 : size * 0.6;
+
+    const grad = ctx.createLinearGradient(-hull, -beam, hull, beam);
+    grad.addColorStop(0, 'rgba(255,255,255,0.22)');
+    grad.addColorStop(0.22, color);
+    grad.addColorStop(1, 'rgba(10,18,28,0.35)');
+
     ctx.beginPath();
     ctx.moveTo(hull, 0);
-    ctx.lineTo(size * 0.4, beam);
-    ctx.lineTo(-hull * 0.75, beam * 0.9);
-    ctx.lineTo(-hull, 0);
-    ctx.lineTo(-hull * 0.75, -beam * 0.9);
-    ctx.lineTo(size * 0.4, -beam);
+    ctx.quadraticCurveTo(size * 0.55, beam * 0.95, -hull * 0.75, beam * 0.82);
+    ctx.lineTo(-hull * 1.02, beam * 0.28);
+    ctx.lineTo(-hull * 1.02, -beam * 0.28);
+    ctx.lineTo(-hull * 0.75, -beam * 0.82);
+    ctx.quadraticCurveTo(size * 0.55, -beam * 0.95, hull, 0);
     ctx.closePath();
-    ctx.fillStyle = color;
+    ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.42)';
     ctx.lineWidth = Math.max(1, size * 0.08);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.24)';
-    ctx.fillRect(-size * 0.3, -beam * 0.3, size * 0.8, beam * 0.6);
-    if (type.guns && ship.type !== 'carrier' && !(ship.type === 'submarine' && ship.submerged)) {
-      ctx.fillStyle = 'rgba(20,30,40,0.65)';
-      const turrets = Math.max(1, type.guns.count);
-      for (let i = 0; i < turrets; i++) {
-        const x = lerp(-size * 0.1, hull * 0.62, turrets === 1 ? 1 : i / (turrets - 1));
-        ctx.fillRect(x - size * 0.14, -size * 0.12, size * 0.28, size * 0.24);
-      }
-    }
+
+    ctx.beginPath();
+    ctx.moveTo(hull * 0.88, 0);
+    ctx.lineTo(-hull * 0.7, 0);
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = Math.max(1, size * 0.05);
+    ctx.stroke();
+
     if (ship.type === 'carrier') {
-      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+      ctx.fillStyle = 'rgba(235,245,255,0.35)';
+      ctx.fillRect(-hull * 0.42, -beam * 0.18, hull * 0.78, beam * 0.36);
+      ctx.strokeStyle = 'rgba(15,25,35,0.35)';
       ctx.beginPath();
-      ctx.moveTo(-hull * 0.8, 0);
+      ctx.moveTo(-hull * 0.82, 0);
       ctx.lineTo(hull * 0.9, 0);
       ctx.stroke();
+      ctx.fillStyle = 'rgba(25,38,52,0.55)';
+      ctx.fillRect(-hull * 0.2, -beam * 0.5, size * 0.34, beam * 0.38);
+    } else if (ship.type === 'submarine') {
+      ctx.fillStyle = 'rgba(220,235,245,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(size * 0.22, 0, hull * 0.26, beam * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (!ship.submerged) {
+        ctx.fillStyle = 'rgba(25,38,52,0.55)';
+        ctx.fillRect(-size * 0.1, -beam * 0.55, size * 0.18, beam * 0.4);
+      }
+    } else {
+      ctx.fillStyle = 'rgba(235,245,255,0.28)';
+      ctx.beginPath();
+      ctx.roundRect?.(-size * 0.42, -beam * 0.28, size * 0.95, beam * 0.56, size * 0.12);
+      if (!ctx.roundRect) ctx.fillRect(-size * 0.42, -beam * 0.28, size * 0.95, beam * 0.56);
+      ctx.fill();
+      if (type.guns && !(ship.type === 'submarine' && ship.submerged)) {
+        ctx.fillStyle = 'rgba(20,30,40,0.72)';
+        const turrets = Math.max(1, type.guns.count);
+        for (let i = 0; i < turrets; i++) {
+          const x = lerp(-size * 0.12, hull * 0.62, turrets === 1 ? 1 : i / (turrets - 1));
+          ctx.fillRect(x - size * 0.14, -size * 0.11, size * 0.28, size * 0.22);
+          ctx.fillRect(x + size * 0.08, -size * 0.03, size * 0.24, size * 0.06);
+        }
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(-size * 0.55 + i * size * 0.28, -beam * 0.64, size * 0.09, size * 0.09);
+      }
     }
+  }
+
+  function drawShipWake(ship, sp, baseSize) {
+    const speedFactor = clamp(Math.abs(ship.speed) / Math.max(1, shipTypes[ship.type].maxSpeed), 0, 1);
+    if (speedFactor < 0.08) return;
+    ctx.save();
+    ctx.translate(sp.x, sp.y);
+    ctx.rotate(ship.angle + Math.PI);
+    ctx.globalAlpha = 0.35 + speedFactor * 0.25;
+    ctx.strokeStyle = 'rgba(210,245,255,0.55)';
+    ctx.lineWidth = Math.max(1, baseSize * 0.14);
+    ctx.beginPath();
+    ctx.moveTo(-baseSize * 0.2, 0);
+    ctx.lineTo(-baseSize * (1.4 + speedFactor * 1.8), baseSize * 0.7);
+    ctx.moveTo(-baseSize * 0.2, 0);
+    ctx.lineTo(-baseSize * (1.4 + speedFactor * 1.8), -baseSize * 0.7);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawAircraft() {
     for (const a of state.battle.aircraft) {
       const sp = worldToScreen(a.x, a.y);
+      drawShipWake(ship, sp, baseSize);
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.fillStyle = a.team === 0 ? '#fff0b7' : '#ffc2b7';
