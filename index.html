@@ -480,8 +480,16 @@
     if (!battle) return null;
     return {
       ...battle,
+      turnPhase: 'planning',
+      simTime: 0,
+      projectiles: [],
+      torpedoes: [],
+      aircraft: [],
+      explosions: [],
+      floatingTexts: [],
+      pings: [],
       ships: battle.ships.map(ship => ({ ...ship, visibleBy: [...(ship.visibleBy || [])] })),
-      actionExecutedThisTurn: [...(battle.actionExecutedThisTurn || [])]
+      actionExecutedThisTurn: []
     };
   }
 
@@ -1476,7 +1484,6 @@
         ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
         if (ship.plan.action && ship.plan.action.kind !== 'submerge' && ship.plan.action.kind !== 'mines') {
           ship.plan.action = null;
-      ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
         }
         clearPendingAction();
         state.message = '';
@@ -1541,11 +1548,13 @@
     const ships = battle.ships.filter(s => s.team !== 0 && !s.destroyed);
     for (const ship of ships) {
       const type = shipTypes[ship.type];
+      if (!ship.plan.weaponTargets) ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
       const enemies = battle.ships.filter(e => e.team !== ship.team && !e.destroyed);
       const visible = enemies.filter(e => e.visibleBy.has(ship.team));
       const closest = visible.sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0] || enemies[0] || null;
       ship.plan.throttle = ship.type === 'battleship' ? 0.7 : 0.85;
       ship.plan.action = null;
+      ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
 
       if (ship.type === 'carrier') ship.plan.throttle = 0.45;
       if (ship.type === 'submarine') ship.plan.throttle = 0.8;
@@ -2527,10 +2536,7 @@
       }
     } else {
       ctx.fillStyle = 'rgba(235,245,255,0.28)';
-      ctx.beginPath();
-      ctx.roundRect?.(-size * 0.42, -beam * 0.28, size * 0.95, beam * 0.56, size * 0.12);
-      if (!ctx.roundRect) ctx.fillRect(-size * 0.42, -beam * 0.28, size * 0.95, beam * 0.56);
-      ctx.fill();
+      ctx.fillRect(-size * 0.42, -beam * 0.28, size * 0.95, beam * 0.56);
       if (type.guns && !(ship.type === 'submarine' && ship.submerged)) {
         ctx.fillStyle = 'rgba(20,30,40,0.72)';
         const turrets = Math.max(1, type.guns.count);
@@ -2932,18 +2938,23 @@
   }
 
   function gameLoop() {
-    if (state.mode === 'battle' && state.battle && state.battle.turnPhase === 'planning' && commandPanel.textContent.indexOf('Start a battle to issue orders.') !== -1) {
-      renderCommandPanel();
+    try {
+      if (state.mode === 'battle' && state.battle && state.battle.turnPhase === 'planning' && commandPanel.textContent.indexOf('Start a battle to issue orders.') !== -1) {
+        renderCommandPanel();
+      }
+      if (state.mode === 'battle' && state.battle && state.battle.turnPhase === 'resolving' && !state.battle.winner) {
+        resolveTurnStep(1 / 60 * RESOLVE_TIME_SCALE);
+      }
+      const now = performance.now();
+      if (now - lastAutoSaveAt > 2000 && (!state.battle || state.battle.turnPhase !== 'resolving')) {
+        saveGameState();
+        lastAutoSaveAt = now;
+      }
+      render();
+    } catch (err) {
+      console.error(err);
+      state.message = 'A runtime error occurred. The game recovered, but the last action may not have finished correctly.';
     }
-    if (state.mode === 'battle' && state.battle && state.battle.turnPhase === 'resolving' && !state.battle.winner) {
-      resolveTurnStep(1 / 60 * RESOLVE_TIME_SCALE);
-    }
-    const now = performance.now();
-    if (now - lastAutoSaveAt > 500) {
-      saveGameState();
-      lastAutoSaveAt = now;
-    }
-    render();
     requestAnimationFrame(gameLoop);
   }
 
