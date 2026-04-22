@@ -377,6 +377,7 @@
   const TORPEDO_HIT_RADIUS = 18;
   const MINE_TRIGGER_RADIUS = 30;
   const VIS_RECHECK_RATE = 0.5;
+  const BOMBER_PATROL_RADIUS = 150;
 
   const shipTypes = {
     destroyer: {
@@ -1383,7 +1384,7 @@
       if (type.torpedoes) html += '<button class="actionBtn ' + ((state.pendingAction === 'torps' || weaponTargets.torps) ? 'active' : '') + '" data-action="torps" ' + (torpsReady ? '' : 'disabled') + '>Fire Torps</button>';
       if (type.mines) html += '<button class="actionBtn ' + (action && action.kind === 'mines' ? 'active' : '') + '" data-togglemines="1">' + (action && action.kind === 'mines' ? 'Stop Mines' : 'Drop Mines') + '</button>';
       if (type.bombers) html += '<button class="actionBtn ' + ((state.pendingAction === 'bombers' || weaponTargets.bombers) ? 'active' : '') + '" data-action="bombers" ' + (bombersReady ? '' : 'disabled') + '>Send Bombers</button>';
-      if (ship.type === 'submarine') html += '<button class="actionBtn ' + (ship.submerged ? 'active warn' : '') + '" data-submerge="1">' + (ship.submerged ? 'Surface' : 'Submerge') + '</button>';
+      if (ship.type === 'submarine') { const plannedSubmerged = ship.plan.action?.kind === 'submerge' ? !!ship.plan.action.value : ship.submerged; html += '<button class="actionBtn ' + (plannedSubmerged ? 'active warn' : '') + '" data-submerge="1">' + (plannedSubmerged ? 'Surface' : 'Submerge') + '</button>'; }
       html += '<button class="actionBtn" id="clearActionBtn">Clear Attack</button>';
       html += '</div>';
 
@@ -1448,7 +1449,7 @@
       const bomberModeBtn = document.getElementById('bomberModeBtn');
       if (bomberModeBtn) bomberModeBtn.onclick = () => {
         ship.plan.bomberMode = ship.plan.bomberMode === 'strike' ? 'patrol' : 'strike';
-        state.message = ship.plan.bomberMode === 'patrol' ? 'Bombers will patrol an area for a while and bomb ships below.' : 'Bombers will make a side-by-side strike run.';
+        state.message = ship.plan.bomberMode === 'patrol' ? 'Bombers will patrol a larger area for a while and bomb ships below.' : 'Bombers will make a side-by-side strike run.';
         refreshPanels();
       };
 
@@ -2048,7 +2049,7 @@
 
       if (a.mode === 'patrol' && a.stage === 'patrol') {
         a.orbitAngle += dt * 1.35;
-        const orbitR = 90;
+        const orbitR = BOMBER_PATROL_RADIUS;
         a.x = a.targetX + Math.cos(a.orbitAngle) * orbitR;
         a.y = a.targetY + Math.sin(a.orbitAngle) * orbitR;
         a.patrolTime -= dt;
@@ -2343,16 +2344,22 @@
             ctx.stroke();
           }
           ctx.setLineDash([]);
+        } else if (target.mode === 'patrol') {
+          ctx.setLineDash([6, 5]);
+          ctx.beginPath();
+          ctx.arc(tp.x, tp.y, BOMBER_PATROL_RADIUS * state.view.zoom, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
         }
       };
       drawReticle(weaponTargets.guns, 'rgba(255,208,130,0.9)');
       drawReticle(weaponTargets.torps, 'rgba(122,225,255,0.9)');
       drawReticle(weaponTargets.bombers, 'rgba(255,200,120,0.9)');
-      if (selected && state.pendingAction === 'bombers' && ship.plan.bomberMode === 'strike' && state.pointer.aimWorldStart) {
+      if (selected && state.pendingAction === 'bombers' && state.pointer.aimWorldStart) {
         drawReticle({
           x: state.pointer.aimWorldStart.x,
           y: state.pointer.aimWorldStart.y,
-          mode: 'strike',
+          mode: ship.plan.bomberMode,
           angle: Math.atan2((state.pointer.aimWorldCurrent?.y ?? state.pointer.aimWorldStart.y) - state.pointer.aimWorldStart.y, (state.pointer.aimWorldCurrent?.x ?? state.pointer.aimWorldStart.x) - state.pointer.aimWorldStart.x)
         }, 'rgba(255,220,150,0.95)');
       }
@@ -2417,7 +2424,6 @@
       ctx.moveTo(pp.x, pp.y);
       ctx.lineTo(sp.x, sp.y);
       ctx.stroke();
-      drawShipWake(ship, sp, baseSize);
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.rotate(t.angle);
@@ -2450,7 +2456,6 @@
       const sp = worldToScreen(ship.x, ship.y);
       const baseSize = shipRadius(ship) * state.view.zoom;
       if (sp.x < -50 || sp.y < -50 || sp.x > canvas.width + 50 || sp.y > canvas.height + 50) continue;
-      drawShipWake(ship, sp, baseSize);
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.rotate(ship.angle);
@@ -2574,7 +2579,6 @@
   function drawAircraft() {
     for (const a of state.battle.aircraft) {
       const sp = worldToScreen(a.x, a.y);
-      drawShipWake(ship, sp, baseSize);
       ctx.save();
       ctx.translate(sp.x, sp.y);
       ctx.fillStyle = a.team === 0 ? '#fff0b7' : '#ffc2b7';
@@ -2704,8 +2708,7 @@
     if (!ship.plan.weaponTargets) ship.plan.weaponTargets = { guns: null, torps: null, bombers: null };
     const angle = endWorld ? Math.atan2(endWorld.y - startWorld.y, endWorld.x - startWorld.x) : Math.atan2(startWorld.y - ship.y, startWorld.x - ship.x);
     ship.plan.weaponTargets.bombers = {
-      x: clamp(startWorld.x, 0, MAP_W),
-      y: clamp(startWorld.y, 0, MAP_H),
+      ...clampCoursePoint(startWorld),
       mode: ship.plan.bomberMode,
       angle
     };
@@ -2831,7 +2834,7 @@
       state.pointer.startX = state.pointer.lastX = e.clientX;
       state.pointer.startY = state.pointer.lastY = e.clientY;
       const selectedShip = getSelectedShip();
-      if (state.mode === 'battle' && state.battle?.turnPhase === 'planning' && state.pendingAction === 'bombers' && selectedShip?.plan?.bomberMode === 'strike') {
+      if (state.mode === 'battle' && state.battle?.turnPhase === 'planning' && state.pendingAction === 'bombers' && selectedShip) {
         state.pointer.aimingBomberStrike = true;
         state.pointer.aimWorldStart = screenToWorld(e.clientX, e.clientY);
         state.pointer.aimWorldCurrent = state.pointer.aimWorldStart;
