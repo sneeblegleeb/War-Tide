@@ -1833,6 +1833,10 @@
 
     ship.planesAvailable -= count;
 
+    const strikeAngle = Math.atan2(target.y - ship.y, target.x - ship.x);
+    const lanePerpX = Math.cos(strikeAngle + Math.PI / 2);
+    const lanePerpY = Math.sin(strikeAngle + Math.PI / 2);
+
     for (let i = 0; i < count; i++) {
       const lateral = (i - (count - 1) / 2) * 44;
       const aircraft = {
@@ -1842,6 +1846,9 @@
         y: ship.y,
         targetX: target.x,
         targetY: target.y,
+        laneTargetX: target.x + lanePerpX * lateral,
+        laneTargetY: target.y + lanePerpY * lateral,
+        strikeAngle,
         speed: b.speed,
         hp: b.health,
         damage: b.damage,
@@ -1982,30 +1989,38 @@
         if (a.patrolTime <= 0) a.stage = 'return';
       } else {
         const homeShip = getShipById(a.sourceId);
-        const targetAngle = Math.atan2(a.targetY - a.y, a.targetX - a.x);
-        const offX = Math.cos(targetAngle + Math.PI / 2) * a.lateralOffset;
-        const offY = Math.sin(targetAngle + Math.PI / 2) * a.lateralOffset;
 
         const tx = a.stage === 'outbound'
-          ? a.targetX + (a.mode === 'strike' ? offX : 0)
+          ? (a.mode === 'strike' ? a.laneTargetX : a.targetX)
           : (homeShip ? homeShip.x : a.x);
         const ty = a.stage === 'outbound'
-          ? a.targetY + (a.mode === 'strike' ? offY : 0)
+          ? (a.mode === 'strike' ? a.laneTargetY : a.targetY)
           : (homeShip ? homeShip.y : a.y);
 
-        const ang = Math.atan2(ty - a.y, tx - a.x);
-        a.x += Math.cos(ang) * a.speed * dt;
-        a.y += Math.sin(ang) * a.speed * dt;
+        const dx = tx - a.x;
+        const dy = ty - a.y;
+        const distToTarget = Math.hypot(dx, dy);
+        const ang = distToTarget > 0.001 ? Math.atan2(dy, dx) : (a.strikeAngle || 0);
+        const step = a.speed * dt;
 
-        if (a.stage === 'outbound' && Math.hypot(a.x - tx, a.y - ty) < 28) {
+        if (distToTarget <= step) {
+          a.x = tx;
+          a.y = ty;
+        } else {
+          a.x += Math.cos(ang) * step;
+          a.y += Math.sin(ang) * step;
+        }
+
+        if (a.stage === 'outbound' && distToTarget < 28) {
           if (a.mode === 'patrol') {
             a.stage = 'patrol';
           } else if (!a.hasDroppedStrike) {
+            const strikeAng = a.strikeAngle || ang;
             for (let b = 0; b < a.bombs; b++) {
               const forward = (b - (a.bombs - 1) / 2) * 36;
               const impact = {
-                x: a.x + Math.cos(ang) * forward,
-                y: a.y + Math.sin(ang) * forward
+                x: a.x + Math.cos(strikeAng) * forward,
+                y: a.y + Math.sin(strikeAng) * forward
               };
               dropBombAt(a, impact);
             }
@@ -2014,7 +2029,7 @@
           }
         }
 
-        if (a.stage === 'return' && Math.hypot(a.x - tx, a.y - ty) < 28) {
+        if (a.stage === 'return' && distToTarget < 28) {
           if (homeShip && !homeShip.destroyed) {
             homeShip.planesAvailable = Math.min(homeShip.planesTotal, homeShip.planesAvailable + 1);
           }
