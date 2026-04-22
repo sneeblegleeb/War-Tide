@@ -360,8 +360,8 @@
   const centerViewBtn = document.getElementById('centerView');
 
   const DOCK_HEIGHT = 176;
-  const SAVE_VERSION = 3;
-  const SAVE_KEY = 'navalBattleSave_v3';
+  const SAVE_VERSION = 4;
+  const SAVE_KEY = 'warTideSave_v4';
   let lastAutoSaveAt = 0;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
@@ -2868,6 +2868,10 @@
       showSetup();
     } else {
       overlay.classList.remove('show');
+      evaluateVictory();
+      if (state.battle?.winner != null || !getPlayerShips().length) {
+        try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
+      }
     }
     refreshPanels();
     window.addEventListener('beforeunload', saveGameState);
