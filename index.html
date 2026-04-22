@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<title>Turn-Based Naval Battle</title>
+<title>War Tide</title>
 <style>
   :root {
     --bg: #07131f;
@@ -360,8 +360,8 @@
   const centerViewBtn = document.getElementById('centerView');
 
   const DOCK_HEIGHT = 176;
-  const SAVE_VERSION = 3;
-  const SAVE_KEY = 'navalBattleSave_v3';
+  const SAVE_VERSION = 4;
+  const SAVE_KEY = 'warTideSave_v4';
   let lastAutoSaveAt = 0;
   const TURN_DURATION = 8;
   const TURN_DT = 0.25;
@@ -520,6 +520,10 @@
       };
       localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
     } catch (err) {}
+  }
+
+  function clearSavedGame() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
   }
 
   function loadGameState() {
@@ -1091,7 +1095,7 @@
     overlay.classList.add('show');
     const selected = shipTypes[state.setup.selectedType];
     modalContent.innerHTML = `
-      <h1>Naval Battle</h1>
+      <h1>War Tide</h1>
       <p class="muted" style="margin-top:8px;">Mobile-first prototype: pan the map, zoom in or out, plan orders ship by ship, then end the turn and watch the battle resolve simultaneously.</p>
       <div class="banner">Defaults in this build: 8-second turns, 4 ships per fleet, 13 fleet points, random islands, fog of war, 1-2 bot opponents, and simplified-but-playable carrier / submarine rules.</div>
       <div class="grid setupGrid">
@@ -1245,6 +1249,9 @@
     document.getElementById('playAgainBtn').addEventListener('click', () => {
       state.mode = 'setup';
       state.pendingAction = null;
+      state.battle = null;
+      state.selectedShipId = null;
+      clearSavedGame();
       showSetup();
     });
   }
@@ -1352,6 +1359,9 @@
       html += '<button class="actionBtn" id="nextShipBtn">Next Ship</button>';
       html += '<button class="actionBtn" id="centerShipBtn">Center View</button>';
       html += '<button class="actionBtn danger" id="endTurnBtn">End Turn</button>';
+      html += '</div>';
+      html += '<div class="row" style="margin-top:8px;">';
+      html += '<button class="actionBtn danger" id="endGameBtn" style="width:100%;">End Game</button>';
       html += '</div>';
 
       html += '<div class="row small" style="margin-top:8px;"><div id="orderSummary">' + escapeHtml(describeCurrentOrder(ship)) + ' · Visible enemies: ' + visibleEnemies + '</div></div>';
@@ -1469,6 +1479,17 @@
       };
       const endTurnBtn = document.getElementById('endTurnBtn');
       if (endTurnBtn) endTurnBtn.onclick = runTurn;
+      const endGameBtn = document.getElementById('endGameBtn');
+      if (endGameBtn) endGameBtn.onclick = () => {
+        clearPendingAction();
+        state.battle = null;
+        state.mode = 'setup';
+        state.selectedShipId = null;
+        state.message = '';
+        state.logs = [];
+        clearSavedGame();
+        showSetup();
+      };
 
     } catch (err) {
       commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Controls hit an error. Minimal fallback is active.</div><div class="small" style="margin-top:4px;color:#ffd2d2;">' + escapeHtml(String(err && err.message || err)) + '</div>' +
@@ -1833,10 +1854,6 @@
 
     ship.planesAvailable -= count;
 
-    const strikeAngle = Math.atan2(target.y - ship.y, target.x - ship.x);
-    const lanePerpX = Math.cos(strikeAngle + Math.PI / 2);
-    const lanePerpY = Math.sin(strikeAngle + Math.PI / 2);
-
     for (let i = 0; i < count; i++) {
       const lateral = (i - (count - 1) / 2) * 44;
       const aircraft = {
@@ -1846,9 +1863,6 @@
         y: ship.y,
         targetX: target.x,
         targetY: target.y,
-        laneTargetX: target.x + lanePerpX * lateral,
-        laneTargetY: target.y + lanePerpY * lateral,
-        strikeAngle,
         speed: b.speed,
         hp: b.health,
         damage: b.damage,
@@ -1989,38 +2003,30 @@
         if (a.patrolTime <= 0) a.stage = 'return';
       } else {
         const homeShip = getShipById(a.sourceId);
+        const targetAngle = Math.atan2(a.targetY - a.y, a.targetX - a.x);
+        const offX = Math.cos(targetAngle + Math.PI / 2) * a.lateralOffset;
+        const offY = Math.sin(targetAngle + Math.PI / 2) * a.lateralOffset;
 
         const tx = a.stage === 'outbound'
-          ? (a.mode === 'strike' ? a.laneTargetX : a.targetX)
+          ? a.targetX + (a.mode === 'strike' ? offX : 0)
           : (homeShip ? homeShip.x : a.x);
         const ty = a.stage === 'outbound'
-          ? (a.mode === 'strike' ? a.laneTargetY : a.targetY)
+          ? a.targetY + (a.mode === 'strike' ? offY : 0)
           : (homeShip ? homeShip.y : a.y);
 
-        const dx = tx - a.x;
-        const dy = ty - a.y;
-        const distToTarget = Math.hypot(dx, dy);
-        const ang = distToTarget > 0.001 ? Math.atan2(dy, dx) : (a.strikeAngle || 0);
-        const step = a.speed * dt;
+        const ang = Math.atan2(ty - a.y, tx - a.x);
+        a.x += Math.cos(ang) * a.speed * dt;
+        a.y += Math.sin(ang) * a.speed * dt;
 
-        if (distToTarget <= step) {
-          a.x = tx;
-          a.y = ty;
-        } else {
-          a.x += Math.cos(ang) * step;
-          a.y += Math.sin(ang) * step;
-        }
-
-        if (a.stage === 'outbound' && distToTarget < 28) {
+        if (a.stage === 'outbound' && Math.hypot(a.x - tx, a.y - ty) < 28) {
           if (a.mode === 'patrol') {
             a.stage = 'patrol';
           } else if (!a.hasDroppedStrike) {
-            const strikeAng = a.strikeAngle || ang;
             for (let b = 0; b < a.bombs; b++) {
               const forward = (b - (a.bombs - 1) / 2) * 36;
               const impact = {
-                x: a.x + Math.cos(strikeAng) * forward,
-                y: a.y + Math.sin(strikeAng) * forward
+                x: a.x + Math.cos(ang) * forward,
+                y: a.y + Math.sin(ang) * forward
               };
               dropBombAt(a, impact);
             }
@@ -2029,7 +2035,7 @@
           }
         }
 
-        if (a.stage === 'return' && distToTarget < 28) {
+        if (a.stage === 'return' && Math.hypot(a.x - tx, a.y - ty) < 28) {
           if (homeShip && !homeShip.destroyed) {
             homeShip.planesAvailable = Math.min(homeShip.planesTotal, homeShip.planesAvailable + 1);
           }
