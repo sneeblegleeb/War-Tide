@@ -1245,6 +1245,9 @@
     document.getElementById('playAgainBtn').addEventListener('click', () => {
       state.mode = 'setup';
       state.pendingAction = null;
+      state.battle = null;
+      state.selectedShipId = null;
+      try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
       showSetup();
     });
   }
@@ -1352,6 +1355,9 @@
       html += '<button class="actionBtn" id="nextShipBtn">Next Ship</button>';
       html += '<button class="actionBtn" id="centerShipBtn">Center View</button>';
       html += '<button class="actionBtn danger" id="endTurnBtn">End Turn</button>';
+      html += '</div>';
+      html += '<div class="row" style="margin-top:8px;">';
+      html += '<button class="actionBtn danger" id="endGameBtn" style="width:100%;">End Game</button>';
       html += '</div>';
 
       html += '<div class="row small" style="margin-top:8px;"><div id="orderSummary">' + escapeHtml(describeCurrentOrder(ship)) + ' · Visible enemies: ' + visibleEnemies + '</div></div>';
@@ -1469,6 +1475,17 @@
       };
       const endTurnBtn = document.getElementById('endTurnBtn');
       if (endTurnBtn) endTurnBtn.onclick = runTurn;
+      const endGameBtn = document.getElementById('endGameBtn');
+      if (endGameBtn) endGameBtn.onclick = () => {
+        clearPendingAction();
+        state.battle = null;
+        state.mode = 'setup';
+        state.selectedShipId = null;
+        state.message = '';
+        state.logs = [];
+        try { localStorage.removeItem(SAVE_KEY); } catch (err) {}
+        showSetup();
+      };
 
     } catch (err) {
       commandPanel.innerHTML = '<div class="sectionTitle">Command</div><div class="small">Controls hit an error. Minimal fallback is active.</div><div class="small" style="margin-top:4px;color:#ffd2d2;">' + escapeHtml(String(err && err.message || err)) + '</div>' +
@@ -1594,7 +1611,25 @@
 
   function evaluateVictory() {
     const battle = state.battle;
-    const aliveTeams = new Set(battle.ships.filter(s => !s.destroyed).map(s => s.team));
+    const aliveShips = battle.ships.filter(s => !s.destroyed);
+    const playerAlive = aliveShips.some(s => s.team === 0);
+    const enemyAlive = aliveShips.some(s => s.team !== 0);
+
+    if (!playerAlive) {
+      battle.winner = aliveShips.find(s => s.team !== 0)?.team ?? null;
+      log('Your fleet has been destroyed.');
+      showEndModal('Defeat');
+      return;
+    }
+
+    if (!enemyAlive) {
+      battle.winner = 0;
+      log('You won the battle.');
+      showEndModal('Victory');
+      return;
+    }
+
+    const aliveTeams = new Set(aliveShips.map(s => s.team));
     if (aliveTeams.size <= 1) {
       const winner = [...aliveTeams][0];
       battle.winner = winner;
