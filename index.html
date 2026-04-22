@@ -317,6 +317,14 @@
     .footerGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .shipJumpGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
+
+  @media (min-width: 980px) {
+    #statusPanel { max-width: min(28vw, 360px); }
+    #commandPanel { padding: 14px; }
+    .shipJumpGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .actionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .footerGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
 </style>
 </head>
 <body>
@@ -360,6 +368,7 @@
   const centerViewBtn = document.getElementById('centerView');
 
   const DOCK_HEIGHT = 176;
+  const DESKTOP_DOCK_WIDTH = 390;
   const SAVE_VERSION = 4;
   const SAVE_KEY = 'warTideSave_v4';
   let lastAutoSaveAt = 0;
@@ -442,7 +451,7 @@
     }
   };
 
-  const teamColors = ['#72c4ff', '#ff9a8c', '#9deaa4'];
+  const teamColors = ['#72c4ff', '#ff9a8c', '#9deaa4', '#d6a6ff'];
 
   const state = {
     mode: 'setup',
@@ -660,7 +669,8 @@
     const spawnPoints = [
       { x: ARENA_CX, y: ARENA_CY + (ARENA_R - 180) },
       { x: ARENA_CX, y: ARENA_CY - (ARENA_R - 180) },
-      { x: ARENA_CX + (ARENA_R - 180), y: ARENA_CY }
+      { x: ARENA_CX + (ARENA_R - 180), y: ARENA_CY },
+      { x: ARENA_CX - (ARENA_R - 180), y: ARENA_CY }
     ];
 
     const addIsland = (minR, maxR, spacing) => {
@@ -704,7 +714,8 @@
     const teamStarts = [
       { x: ARENA_CX, y: ARENA_CY + spawnR },
       { x: ARENA_CX, y: ARENA_CY - spawnR },
-      { x: ARENA_CX + spawnR, y: ARENA_CY }
+      { x: ARENA_CX + spawnR, y: ARENA_CY },
+      { x: ARENA_CX - spawnR, y: ARENA_CY }
     ];
 
     const lineOffsets = makeLineOffsets(Math.max(getFleetLimit(), playerFleet.length || 1), 120);
@@ -716,11 +727,12 @@
       const comp = generateAIFleet();
       comp.forEach((typeKey, i) => {
         const base = teamStarts[team];
-        const ang = team === 1 ? Math.PI / 2 : Math.PI;
+        const ang = team === 1 ? Math.PI / 2 : team === 2 ? Math.PI : 0;
         const off = lineOffsets[i];
         let x = base.x, y = base.y;
         if (team === 1) { x += off + rand(-20, 20); y += rand(-16, 16); }
         if (team === 2) { x += rand(-16, 16); y += off + rand(-20, 20); }
+        if (team === 3) { x += rand(-16, 16); y += off + rand(-20, 20); }
         battle.ships.push(makeShip(team, typeKey, x, y, ang));
       });
     }
@@ -1142,6 +1154,7 @@
               <select id="botCountSelect">
                 <option value="1" ${state.bots === 1 ? 'selected' : ''}>1</option>
                 <option value="2" ${state.bots === 2 ? 'selected' : ''}>2</option>
+                <option value="3" ${state.bots === 3 ? 'selected' : ''}>3</option>
               </select>
             </div>
             <div class="pill">Fleet Size
@@ -2787,20 +2800,41 @@
   function layoutUI() {
     const appH = Math.max(1, window.innerHeight);
     const appW = Math.max(1, window.innerWidth);
-    const dockH = DOCK_HEIGHT;
+    const isDesktop = appW >= 980;
 
-    viewportEl.style.left = '0px';
-    viewportEl.style.right = '0px';
-    viewportEl.style.top = '0px';
-    viewportEl.style.bottom = '';
-    viewportEl.style.height = Math.max(160, appH - dockH) + 'px';
+    if (isDesktop) {
+      const dockW = Math.min(DESKTOP_DOCK_WIDTH, Math.max(340, Math.floor(appW * 0.30)));
+      viewportEl.style.left = '0px';
+      viewportEl.style.top = '0px';
+      viewportEl.style.right = '';
+      viewportEl.style.bottom = '';
+      viewportEl.style.width = Math.max(320, appW - dockW) + 'px';
+      viewportEl.style.height = appH + 'px';
 
-    bottomBar.style.left = '0px';
-    bottomBar.style.right = '0px';
-    bottomBar.style.top = Math.max(0, appH - dockH) + 'px';
-    bottomBar.style.bottom = '';
-    bottomBar.style.height = dockH + 'px';
-    bottomBar.style.width = appW + 'px';
+      bottomBar.style.left = Math.max(0, appW - dockW) + 'px';
+      bottomBar.style.right = '0px';
+      bottomBar.style.top = '0px';
+      bottomBar.style.bottom = '0px';
+      bottomBar.style.width = dockW + 'px';
+      bottomBar.style.height = appH + 'px';
+      bottomBar.style.padding = '12px';
+    } else {
+      const dockH = DOCK_HEIGHT;
+      viewportEl.style.left = '0px';
+      viewportEl.style.right = '0px';
+      viewportEl.style.top = '0px';
+      viewportEl.style.bottom = '';
+      viewportEl.style.width = appW + 'px';
+      viewportEl.style.height = Math.max(160, appH - dockH) + 'px';
+
+      bottomBar.style.left = '0px';
+      bottomBar.style.right = '0px';
+      bottomBar.style.top = Math.max(0, appH - dockH) + 'px';
+      bottomBar.style.bottom = '';
+      bottomBar.style.width = appW + 'px';
+      bottomBar.style.height = dockH + 'px';
+      bottomBar.style.padding = '8px 10px max(10px, env(safe-area-inset-bottom)) 10px';
+    }
   }
 
   function resizeCanvas() {
@@ -2936,8 +2970,13 @@
     const halfW = canvas.width / 2 / state.view.zoom;
     const halfH = canvas.height / 2 / state.view.zoom;
     const extra = 320;
-    state.view.x = clamp(state.view.x, ARENA_CX - ARENA_R - extra + halfW, ARENA_CX + ARENA_R + extra - halfW);
-    state.view.y = clamp(state.view.y, ARENA_CY - ARENA_R - extra + halfH, ARENA_CY + ARENA_R + extra - halfH);
+    const minX = ARENA_CX - ARENA_R - extra + halfW;
+    const maxX = ARENA_CX + ARENA_R + extra - halfW;
+    const minY = ARENA_CY - ARENA_R - extra + halfH;
+    const maxY = ARENA_CY + ARENA_R + extra - halfH;
+
+    state.view.x = minX > maxX ? ARENA_CX : clamp(state.view.x, minX, maxX);
+    state.view.y = minY > maxY ? ARENA_CY : clamp(state.view.y, minY, maxY);
   }
 
   function gameLoop() {
